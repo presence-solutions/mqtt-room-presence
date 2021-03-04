@@ -1,10 +1,22 @@
-class DeviceSignalEvent:
+from collections import namedtuple
+
+
+class DeviceSignalEvent(namedtuple(
+    'DeviceSignalEvent',
+    'uuid, name, tx, rx, distance, timestamp'
+)):
     pass
 
 
-class HeartbeatEvent:
+class HeartbeatEvent(namedtuple(
+    'HeartbeatEvent',
+    'device, signals, timestamp'
+)):
     pass
 
 
-class OccupancyEvent:
+class OccupancyEvent(namedtuple(
+    'OccupancyEvent',
+    'device, room'
+)):
     pass
