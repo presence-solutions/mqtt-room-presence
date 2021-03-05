@@ -23,5 +23,6 @@ yarn-debug.log*
 yarn-error.log*
 
 # python
-api/venv
+venv
 __pycache__
+node_modules

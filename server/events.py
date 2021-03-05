@@ -20,3 +20,17 @@ class OccupancyEvent(namedtuple(
     'device, room'
 )):
     pass
+
+
+class MQTTConnectedEvent(namedtuple(
+    'MQTTConnectedEvent',
+    'client, serdata, flags, rc'
+)):
+    pass
+
+
+class MQTTMessage(namedtuple(
+    'MQTTMessage',
+    'topic, payload'
+)):
+    pass
