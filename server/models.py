@@ -1,6 +1,8 @@
+from server.events import DeviceAdded, DeviceRemoved
+from server.eventbus import eventbus
 from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Float,
-    LargeBinary)
+    LargeBinary, event)
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql.functions import func
@@ -97,3 +99,13 @@ class PredictionModel(Base):
 
 
 Base.metadata.create_all(engine)
+
+
+@event.listens_for(Device, 'after_insert')
+def emit_device_added(mapper, connection, target):
+    eventbus.post(DeviceAdded(device=target))
+
+
+@event.listens_for(Device, 'after_delete')
+def emit_device_removed(mapper, connection, target):
+    eventbus.post(DeviceRemoved(device=target))
