@@ -1,9 +1,9 @@
-from flask import Blueprint
 from datetime import datetime
+from aiohttp import web
 
-api = Blueprint('API', __name__)
 
+async def time_api():
+    return web.json_response({'time': datetime.now()})
 
-@api.route('/api/time')
-def time_api():
-    return {'time': datetime.now()}
+def setup_routes(app):
+    app.router.add_get('/api/time', time_api)

@@ -1,3 +1,3 @@
-from flask_socketio import SocketIO
+import socketio as sio
 
-socketio = SocketIO()
+socketio = sio.AsyncServer(async_mode='aiohttp')

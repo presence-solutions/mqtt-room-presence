@@ -1,18 +1,63 @@
-from flask_mqtt import Mqtt
+import asyncio
+from asyncio_mqtt import Client, MqttError
 from server.eventbus import eventbus
 from server.events import MQTTConnectedEvent, MQTTMessage
-
-mqtt = Mqtt()
-
-
-@mqtt.on_connect()
-def handle_mqtt_connect(*args, **kwargs):
-    eventbus.post(MQTTConnectedEvent(*args, **kwargs))
+from contextlib import AsyncExitStack
 
 
-@mqtt.on_message()
-def handle_mqtt_message(client, userdata, message):
-    eventbus.post(MQTTMessage(
-        topic=message.topic,
-        payload=message.payload.decode()
-    ))
+async def connect_mqtt(app):
+    async with AsyncExitStack() as stack:
+        tasks = set()
+        stack.push_async_callback(cancel_tasks, tasks)
+
+        # Connect to the MQTT broker
+        client = Client(
+            hostname=app['config'].MQTT_BROKER_URL, port=app['config'].MQTT_BROKER_PORT,
+            username=app['config'].MQTT_USERNAME, password=app['config'].MQTT_PASSWORD)
+
+        await stack.enter_async_context(client)
+
+        # Take all messages and emit them to the event bus
+        messages = await stack.enter_async_context(client.unfiltered_messages())
+        task = asyncio.create_task(emit_messages(messages))
+        tasks.add(task)
+
+        # Subscribe to topic(s)
+        # Note that we subscribe *after* starting the message
+        # loggers. Otherwise, we may miss retained messages.
+        task = asyncio.create_task(eventbus.post(MQTTConnectedEvent(client=client)))
+        tasks.add(task)
+
+        # Wait for everything to complete (or fail due to, e.g., network
+        # errors)
+        await asyncio.gather(*tasks)
+
+
+async def emit_messages(messages):
+    async for message in messages:
+        asyncio.create_task(eventbus.post(MQTTMessage(
+            topic=message.topic,
+            payload=message.payload.decode()
+        )))
+
+
+async def cancel_tasks(tasks):
+    for task in tasks:
+        if task.done():
+            continue
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def setup_mqtt(app):
+    reconnect_interval = 3
+    while True:
+        try:
+            await connect_mqtt(app)
+        except MqttError as error:
+            print(f'Error "{error}". Reconnecting in {reconnect_interval} seconds.')
+        finally:
+            await asyncio.sleep(reconnect_interval)

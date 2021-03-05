@@ -24,7 +24,7 @@ class OccupancyEvent(namedtuple(
 
 class MQTTConnectedEvent(namedtuple(
     'MQTTConnectedEvent',
-    'client, serdata, flags, rc'
+    'client'
 )):
     pass
 
@@ -32,5 +32,19 @@ class MQTTConnectedEvent(namedtuple(
 class MQTTMessage(namedtuple(
     'MQTTMessage',
     'topic, payload'
+)):
+    pass
+
+
+class DeviceAdded(namedtuple(
+    'DeviceAdded',
+    'device'
+)):
+    pass
+
+
+class DeviceRemoved(namedtuple(
+    'DeviceAdded',
+    'device'
 )):
     pass

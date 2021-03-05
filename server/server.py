@@ -1,18 +1,21 @@
-import eventlet
 import logging
-from flask import Flask
-from server.mqtt import mqtt
+from aiohttp import web
+from server.mqtt import setup_mqtt
 from server.socketio import socketio
-from server.service import Service
-from server.api import api
+from server.service import start_service
+from server.api import setup_routes
+from server.models import init_db, close_db
+from server.config.base import Config
 
-eventlet.monkey_patch()
 logging.basicConfig(level=logging.INFO)
 
-app = Flask(__name__)
-app.config.from_object('server.config.base.Config')
-app.register_blueprint(api)
+app = web.Application()
+app['config'] = Config
 
-mqtt.init_app(app)
-socketio.init_app(app)
-service = Service()
+setup_routes(app)
+socketio.attach(app)
+
+app.on_startup.append(setup_mqtt)
+app.on_startup.append(start_service)
+app.on_startup.append(init_db)
+app.on_cleanup.append(close_db)
