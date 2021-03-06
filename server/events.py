@@ -34,3 +34,17 @@ class MQTTMessage(namedtuple(
     'topic, payload'
 )):
     pass
+
+
+class DeviceAdded(namedtuple(
+    'DeviceAdded',
+    'device'
+)):
+    pass
+
+
+class DeviceRemoved(namedtuple(
+    'DeviceAdded',
+    'device'
+)):
+    pass
