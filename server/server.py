@@ -16,6 +16,6 @@ setup_routes(app)
 socketio.attach(app)
 
 app.on_startup.append(setup_mqtt)
-app.on_startup.append(start_service)
 app.on_startup.append(init_db)
+app.on_startup.append(start_service)
 app.on_cleanup.append(close_db)

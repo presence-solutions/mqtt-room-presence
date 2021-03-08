@@ -8,4 +8,6 @@ class Predict:
 
     @subscribe(thread_mode=Mode.PARALLEL, on_event=HeartbeatEvent)
     def handle_device_heartbeat(self, event):
-        eventbus.post(OccupancyEvent())
+        pass
+        # print('predicting...', event)
+        # eventbus.post(OccupancyEvent())

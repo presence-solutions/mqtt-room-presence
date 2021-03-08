@@ -29,22 +29,47 @@ class MQTTConnectedEvent(namedtuple(
     pass
 
 
-class MQTTMessage(namedtuple(
+class MQTTMessageEvent(namedtuple(
     'MQTTMessage',
     'topic, payload'
 )):
     pass
 
 
-class DeviceAdded(namedtuple(
+class DeviceAddedEvent(namedtuple(
     'DeviceAdded',
     'device'
 )):
     pass
 
 
-class DeviceRemoved(namedtuple(
+class DeviceRemovedEvent(namedtuple(
     'DeviceAdded',
     'device'
+)):
+    pass
+
+
+class StartRecordingSignalsEvent(namedtuple(
+    'StartRecordingSignals',
+    'device, room'
+)):
+    pass
+
+
+class StopRecordingSignalsEvent():
+    pass
+
+
+class TrainPredictionModelEvent(namedtuple(
+    'TrainPredictionModel',
+    'device'
+)):
+    pass
+
+
+class TrainingProgressEvent(namedtuple(
+    'TrainingProgressEvent',
+    'device, message, is_error, is_final'
 )):
     pass
