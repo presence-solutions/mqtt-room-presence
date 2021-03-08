@@ -1,17 +1,11 @@
 import eventlet
-from server.events import DeviceAdded, DeviceRemoved, HeartbeatEvent, MQTTConnectedEvent, MQTTMessage
+from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
 from server.eventbus import Mode, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
-
-SCANNERS_TOPIC = 'room_presence/'
-DEFAULT_TX_POWER = -72
-MAX_SIGNAL_BEATS_AGE = 2
-HEARTBEAT_COLLECT_PERIOD_SEC = 0.5
-HEARTBEAT_SIGNAL_WAIT_SEC = 60
-MAX_DISTANCE = 30
-KALMAN_R = 0.08
-KALMAN_Q = 15
+from server.constants import (
+    SCANNERS_TOPIC, DEFAULT_TX_POWER, MAX_SIGNAL_BEATS_AGE, HEARTBEAT_COLLECT_PERIOD_SEC,
+    HEARTBEAT_SIGNAL_WAIT_SEC, MAX_DISTANCE, KALMAN_R, KALMAN_Q)
 
 
 def calculate_rssi_distance(signal):
@@ -45,6 +39,7 @@ class DeviceTracker:
     COLLECTING_DATA = 2
 
     def __init__(self, device):
+        print('here', device)
         self.device = device
         self.state = None
         self.greenlet = None
@@ -58,15 +53,15 @@ class DeviceTracker:
         self.rssi_filters = {}
         self.beat_counter = 0
         if self.greenlet:
-            eventlet.kill(self.greenlet)
+            self.greenlet.kill()
 
     def track(self):
         self.state = DeviceTracker.WAIT_FOR_SIGNAL
-        self.greenlet = eventlet.spawn_n(self.wait_for_signal)
+        self.greenlet = eventlet.spawn(self.wait_for_signal)
 
     def process_signal(self, scanner_uuid, signal):
         if self.state == DeviceTracker.WAIT_FOR_SIGNAL:
-            eventlet.kill(self.greenlet)
+            self.greenlet.kill()
             self.state = DeviceTracker.COLLECTING_DATA
             self.greenlet = eventlet.spawn_after(HEARTBEAT_COLLECT_PERIOD_SEC, self.send_heartbeat)
             self.beat_counter += 1
@@ -110,7 +105,7 @@ class Heartbeat:
         self.device_trackers = {}
         eventbus.register(self, self.__class__.__name__)
 
-    @subscribe(on_event=DeviceAdded, thread_mode=Mode.PARALLEL)
+    @subscribe(on_event=DeviceAddedEvent, thread_mode=Mode.PARALLEL)
     def handle_device_added(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()
@@ -119,7 +114,7 @@ class Heartbeat:
         self.device_trackers[event.device.identifier] = tracker
         tracker.track()
 
-    @subscribe(on_event=DeviceRemoved)
+    @subscribe(on_event=DeviceRemovedEvent)
     def handle_device_removed(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()
@@ -130,7 +125,7 @@ class Heartbeat:
         self.mqtt = event.client
         self.mqtt.subscribe('{}#'.format(SCANNERS_TOPIC))
 
-    @subscribe(on_event=MQTTMessage)
+    @subscribe(on_event=MQTTMessageEvent)
     def handle_mqtt_message(self, event):
         if not event.topic.startswith(SCANNERS_TOPIC):
             return

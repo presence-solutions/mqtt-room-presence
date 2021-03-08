@@ -1,4 +1,4 @@
-from server.events import DeviceAdded, DeviceRemoved
+from server.events import DeviceAddedEvent, DeviceRemovedEvent
 from server.eventbus import eventbus
 from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Float,
@@ -117,9 +117,9 @@ Base.metadata.create_all(engine)
 
 @event.listens_for(Device, 'after_insert')
 def emit_device_added(mapper, connection, target):
-    eventbus.post(DeviceAdded(device=target))
+    eventbus.post(DeviceAddedEvent(device=target))
 
 
 @event.listens_for(Device, 'after_delete')
 def emit_device_removed(mapper, connection, target):
-    eventbus.post(DeviceRemoved(device=target))
+    eventbus.post(DeviceRemovedEvent(device=target))

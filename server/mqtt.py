@@ -1,7 +1,7 @@
 import json
 from flask_mqtt import Mqtt
 from server.eventbus import eventbus
-from server.events import MQTTConnectedEvent, MQTTMessage
+from server.events import MQTTConnectedEvent, MQTTMessageEvent
 
 mqtt = Mqtt()
 
@@ -13,7 +13,7 @@ def handle_mqtt_connect(*args, **kwargs):
 
 @mqtt.on_message()
 def handle_mqtt_message(client, userdata, message):
-    eventbus.post(MQTTMessage(
+    eventbus.post(MQTTMessageEvent(
         topic=message.topic,
         payload=json.loads(message.payload.decode())
     ))

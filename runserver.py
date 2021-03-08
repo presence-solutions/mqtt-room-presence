@@ -1,6 +1,6 @@
 from server.server import socketio, app
 from server.models import Device, Scanner, Session, Room
-from server.events import StartRecordingSignals
+from server.events import StartRecordingSignalsEvent
 from server.eventbus import eventbus
 
 session = Session()
@@ -13,7 +13,7 @@ session.add(Scanner(uuid="lobby", name=""))
 session.add(Device(name="iPhone (Anna)", uuid="4debad57eb66", use_name_as_id=True))
 session.commit()
 
-eventbus.post(StartRecordingSignals(
+eventbus.post(StartRecordingSignalsEvent(
     device=session.query(Device).first(),
     room=session.query(Room).first()
 ))

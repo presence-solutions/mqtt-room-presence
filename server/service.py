@@ -1,5 +1,5 @@
 from server.eventbus import eventbus
-from server.events import DeviceAdded
+from server.events import DeviceAddedEvent
 from server.heartbeat import Heartbeat
 from server.learn import Learn
 from server.predict import Predict
@@ -21,4 +21,4 @@ class Service:
         devices = session.query(Device).all()
 
         for device in devices:
-            eventbus.post(DeviceAdded(device=device))
+            eventbus.post(DeviceAddedEvent(device=device))

@@ -7,7 +7,7 @@ from server.service import Service
 from server.api import api
 
 eventlet.monkey_patch()
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
 
 app = Flask(__name__)
 app.config.from_object('server.config.base.Config')
@@ -15,4 +15,6 @@ app.register_blueprint(api)
 
 mqtt.init_app(app)
 socketio.init_app(app)
+
 service = Service()
+# app['service'] = service
