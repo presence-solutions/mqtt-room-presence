@@ -15,9 +15,8 @@ KALMAN_Q = 15
 
 
 def calculate_rssi_distance(signal):
-    measuredPower = signal.get('txPower', DEFAULT_TX_POWER)
-    measuredPower = measuredPower * -1 if measuredPower > 0 else measuredPower
-    ratio = signal['rssi'] / measuredPower
+    measuredPower = DEFAULT_TX_POWER  # signal.get('txPower', DEFAULT_TX_POWER)
+    ratio = signal['filtered_rssi'] / measuredPower
 
     if ratio < 1:
         return round(pow(ratio, 10), 1)
@@ -31,7 +30,13 @@ def prepare_heratbeat(signals, latest_beat):
         distance = value['distance']
         if distance > MAX_DISTANCE or (latest_beat - value['beat_idx']) > MAX_SIGNAL_BEATS_AGE:
             distance = MAX_DISTANCE
-        final_signals[key] = distance
+
+        final_signals[key] = {
+            'distance': distance,
+            'filtered_rssi': value['filtered_rssi'],
+            'raw_rssi': value['raw_rssi'],
+        }
+
     return final_signals
 
 
@@ -77,7 +82,8 @@ class DeviceTracker:
             scanner_filter = KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)
             self.rssi_filters[scanner_uuid] = scanner_filter
 
-        filtered_signal['rssi'] = scanner_filter.filter(filtered_signal['rssi'])
+        filtered_signal['raw_rssi'] = filtered_signal['rssi']
+        filtered_signal['filtered_rssi'] = scanner_filter.filter(filtered_signal['rssi'])
         filtered_signal['distance'] = calculate_rssi_distance(filtered_signal)
 
         return filtered_signal
@@ -106,18 +112,18 @@ class Heartbeat:
 
     @subscribe(on_event=DeviceAdded, thread_mode=Mode.PARALLEL)
     def handle_device_added(self, event):
-        if event.device.uuid in self.device_trackers:
-            self.device_trackers[event.device.uuid].stop()
+        if event.device.identifier in self.device_trackers:
+            self.device_trackers[event.device.identifier].stop()
 
         tracker = DeviceTracker(event.device)
-        self.device_trackers[event.device.uuid] = tracker
+        self.device_trackers[event.device.identifier] = tracker
         tracker.track()
 
     @subscribe(on_event=DeviceRemoved)
     def handle_device_removed(self, event):
-        if event.device.uuid in self.device_trackers:
-            self.device_trackers[event.device.uuid].stop()
-            del self.device_trackers[event.device.uuid]
+        if event.device.identifier in self.device_trackers:
+            self.device_trackers[event.device.identifier].stop()
+            del self.device_trackers[event.device.identifier]
 
     @subscribe(on_event=MQTTConnectedEvent)
     def handle_mqtt_connect(self, event):
@@ -130,8 +136,11 @@ class Heartbeat:
             return
 
         device_uuid = event.payload.get('uuid')
-        if device_uuid in self.device_trackers:
-            self.device_trackers[device_uuid].process_signal(
+        device_name = event.payload.get('name')
+        tracker = self.device_trackers.get(device_uuid) or self.device_trackers.get(device_name)
+
+        if tracker:
+            tracker.process_signal(
                 event.topic.split('/')[1],
                 event.payload
             )

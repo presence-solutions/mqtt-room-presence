@@ -2,7 +2,7 @@ from server.events import DeviceAdded, DeviceRemoved
 from server.eventbus import eventbus
 from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Float,
-    LargeBinary, event)
+    LargeBinary, Boolean, JSON, event)
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql.functions import func
@@ -44,9 +44,18 @@ scanner_predict_association_table = Table(
 )
 
 
+class DeviceHeartbeat(Base):
+    device_id = Column(Integer, ForeignKey('device.id'))
+    device = relationship('Device')
+    room_id = Column(Integer, ForeignKey('room.id'))
+    room = relationship('Room')
+    signals = Column(JSON)
+
+
 class Device(Base):
     name = Column(String)
     uuid = Column(String)
+    use_name_as_id = Column(Boolean)
     display_name = Column(String)
     latest_signal = Column(DateTime)
     current_room_id = Column(Integer, ForeignKey('room.id'))
@@ -57,6 +66,11 @@ class Device(Base):
         "PredictionModel",
         secondary=device_predict_association_table,
         back_populates="devices")
+
+    @property
+    def identifier(self):
+        identifier = self.name if self.use_name_as_id else self.uuid
+        return identifier or self.uuid
 
 
 class Room(Base):

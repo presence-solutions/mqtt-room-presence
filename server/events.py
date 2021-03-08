@@ -48,3 +48,14 @@ class DeviceRemoved(namedtuple(
     'device'
 )):
     pass
+
+
+class StartRecordingSignals(namedtuple(
+    'StartLearning',
+    'device, room'
+)):
+    pass
+
+
+class StopRecordingSignals():
+    pass
