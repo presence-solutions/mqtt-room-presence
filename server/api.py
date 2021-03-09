@@ -2,8 +2,8 @@ from datetime import datetime
 from aiohttp import web
 
 
-async def time_api():
-    return web.json_response({'time': datetime.now()})
+async def time_api(app):
+    return web.json_response({'time': 122})
 
 
 def setup_routes(app):

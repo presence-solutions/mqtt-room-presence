@@ -9,6 +9,6 @@
     "scripts": {
       "start": "concurrently \"npm run client\" \"npm run server\"",
       "client": "cd client && npm run start",
-      "server": "venv/bin/python runserver.py"
+      "server": ".venv/bin/python runserver.py"
     }
   }

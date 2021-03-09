@@ -39,7 +39,6 @@ class DeviceTracker:
     COLLECTING_DATA = 2
 
     def __init__(self, device):
-        print('here', device)
         self.device = device
         self.state = None
         self.coroutine = None
