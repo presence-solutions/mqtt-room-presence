@@ -1,55 +1,25 @@
-from server.events import DeviceAddedEvent, DeviceRemovedEvent
+from server.events import DeviceAddedEvent, DeviceRemovedEvent, StartRecordingSignalsEvent
 from server.eventbus import eventbus
-from sqlalchemy import (
-    create_engine, Column, Integer, String, DateTime, ForeignKey, Table, Float,
-    LargeBinary, Boolean, JSON, event)
-from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy.sql.functions import func
+from tortoise.models import Model
+from tortoise import fields
 
 
-engine = create_engine('sqlite:///:memory:', echo=True)
-Session = sessionmaker(bind=engine)
+class Base(Model):
+    class Meta:
+        abstract = True
+
+    id = fields.IntField(pk=True)
 
 
-class Base(object):
-    @declared_attr
-    def __tablename__(cls):
-        return cls.__name__.lower()
-
-    id = Column(Integer, primary_key=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+class TimestampMixin():
+    created_at = fields.DatetimeField(null=True, auto_now_add=True)
+    updated_at = fields.DatetimeField(null=True, auto_now=True)
 
 
-Base = declarative_base(cls=Base)
-
-
-device_predict_association_table = Table(
-    'device_predict_association', Base.metadata,
-    Column('device_id', Integer, ForeignKey('device.id')),
-    Column('model_id', Integer, ForeignKey('predictionmodel.id'))
-)
-
-room_predict_association_table = Table(
-    'room_predict_association', Base.metadata,
-    Column('room_id', Integer, ForeignKey('room.id')),
-    Column('model_id', Integer, ForeignKey('predictionmodel.id'))
-)
-
-scanner_predict_association_table = Table(
-    'scanner_predict_association', Base.metadata,
-    Column('scanner_id', Integer, ForeignKey('scanner.id')),
-    Column('model_id', Integer, ForeignKey('predictionmodel.id'))
-)
-
-
-class DeviceHeartbeat(Base):
-    device_id = Column(Integer, ForeignKey('device.id'))
-    device = relationship('Device')
-    room_id = Column(Integer, ForeignKey('room.id'))
-    room = relationship('Room')
-    signals = Column(JSON)
+class DeviceHeartbeat(Base, TimestampMixin):
+    device = fields.ForeignKeyField('models.Device', related_name='heartbeats')
+    room = fields.ForeignKeyField('models.Room', related_name='heartbeats')
+    signals = fields.JSONField()
 
 
 class Device(Base):
@@ -112,9 +82,6 @@ class PredictionModel(Base):
         back_populates="prediction_models")
 
 
-Base.metadata.create_all(engine)
-
-
 @event.listens_for(Device, 'after_insert')
 def emit_device_added(mapper, connection, target):
     eventbus.post(DeviceAddedEvent(device=target))
@@ -126,7 +93,34 @@ def emit_device_removed(mapper, connection, target):
 
 
 async def init_db(app):
-    pass
+    engine = create_async_engine("sqlite:///:memory:", echo=True)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+    # expire_on_commit=False will prevent attributes from being expired
+    # after commit.
+    async_session = sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    app['db'] = async_session
+
+    async with async_session() as session:
+        session.add(Room(name='Office'))
+        session.add(Scanner(uuid="office", name=""))
+        session.add(Scanner(uuid="kitchen", name=""))
+        session.add(Scanner(uuid="lobby", name=""))
+        # session.add(Device(name="room-presence", uuid="40978e03b915"))
+        # session.add(Device(name="Mi Smart Band 4", uuid="cf4ffda76286"))
+        session.add(Device(name="iPhone (Anna)", uuid="4debad57eb66", use_name_as_id=True))
+        session.commit()
+
+        eventbus.post(StartRecordingSignalsEvent(
+            device=session.query(Device).first(),
+            room=session.query(Room).first()
+        ))
 
 
 async def close_db(app):

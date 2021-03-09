@@ -108,7 +108,7 @@ class Learn:
         ))
         self.db_session.commit()
 
-    @subscribe(thread_mode=Mode.PARALLEL, on_event=TrainPredictionModelEvent)
+    @subscribe(thread_mode=Mode.COROUTINE, on_event=TrainPredictionModelEvent)
     def handle_train_model(self, event):
         device = event.device
         X, y = prepare_training_data(event.device)

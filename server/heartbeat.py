@@ -1,4 +1,4 @@
-import eventlet
+import asyncio
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
 from server.eventbus import Mode, eventbus, subscribe
 from server.kalman import KalmanRSSI
@@ -42,7 +42,7 @@ class DeviceTracker:
         print('here', device)
         self.device = device
         self.state = None
-        self.greenlet = None
+        self.coroutine = None
         self.latest_signals = {}
         self.rssi_filters = {}
         self.beat_counter = 0
@@ -52,19 +52,19 @@ class DeviceTracker:
         self.latest_signals = {}
         self.rssi_filters = {}
         self.beat_counter = 0
-        if self.greenlet:
-            self.greenlet.kill()
+        if self.coroutine:
+            self.coroutine.cancel()
 
     def track(self):
         self.state = DeviceTracker.WAIT_FOR_SIGNAL
-        self.greenlet = eventlet.spawn(self.wait_for_signal)
+        self.coroutine = asyncio.create_task(self.wait_for_signal())
 
     def process_signal(self, scanner_uuid, signal):
         if self.state == DeviceTracker.WAIT_FOR_SIGNAL:
-            self.greenlet.kill()
-            self.state = DeviceTracker.COLLECTING_DATA
-            self.greenlet = eventlet.spawn_after(HEARTBEAT_COLLECT_PERIOD_SEC, self.send_heartbeat)
+            self.coroutine.cancel()
             self.beat_counter += 1
+            self.state = DeviceTracker.COLLECTING_DATA
+            self.coroutine = asyncio.create_task(self.send_heartbeat())
 
         signal['beat_idx'] = self.beat_counter
         self.latest_signals[scanner_uuid] = self.filter_signal(scanner_uuid, signal)
@@ -83,13 +83,15 @@ class DeviceTracker:
 
         return filtered_signal
 
-    def wait_for_signal(self):
-        eventlet.sleep(HEARTBEAT_SIGNAL_WAIT_SEC)
+    async def wait_for_signal(self):
+        asyncio.sleep(HEARTBEAT_SIGNAL_WAIT_SEC)
         eventbus.post(HeartbeatEvent(
             device=self.device, signals=None, timestamp=datetime.now()))
         self.track()
 
     def send_heartbeat(self):
+        asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
+
         if self.state != DeviceTracker.COLLECTING_DATA:
             return
 
@@ -105,7 +107,7 @@ class Heartbeat:
         self.device_trackers = {}
         eventbus.register(self, self.__class__.__name__)
 
-    @subscribe(on_event=DeviceAddedEvent, thread_mode=Mode.PARALLEL)
+    @subscribe(on_event=DeviceAddedEvent, thread_mode=Mode.COROUTINE)
     def handle_device_added(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()

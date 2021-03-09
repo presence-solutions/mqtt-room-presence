@@ -1,11 +1,14 @@
 import threading
+import asyncio
 from queue import Queue
 from threading import Thread
 import multiprocessing
+from typing import Coroutine
 
 
 class Mode:
     POSTING = 0
+    COROUTINE = 3
     BACKGROUND = 1
     PARALLEL = 4
     CONCURRENT = 5
@@ -62,13 +65,18 @@ class EventBus:
         else:
             try:
                 threadName = "thread-" + method.__module__ + "-" + method.__name__
-                if in_mode == Mode.PARALLEL:
+                if in_mode == Mode.COROUTINE:
                     EventBusThread(randint(1, 100), threadName, 1, method, with_event, subscriber).start()
                 elif in_mode == Mode.BACKGROUND:
                     self.queue.put(EventBusThread(
                         randint(1, 100), threadName, 1, method, with_event, subscriber).start())
                 elif in_mode == Mode.CONCURRENT:
                     multiprocessing.Process(target=method, args=(subscriber, with_event,)).start()
+                elif in_mode == Mode.COROUTINE:
+                    result = method(subscriber, with_event)
+                    if asyncio.iscoroutinefunction(method):
+                        asyncio.create_task(result)
+
             except Exception:
                 raise Exception('Unable to start thread for method: ', method, ' with event: ', with_event)
 
@@ -85,8 +93,8 @@ class EventBus:
                         self.call(
                             method=method, with_event=event, in_mode=self.method_mode.get(method),
                             subscriber=subscriber)
-            else:
-                raise Exception('Could not find subscriber for posted event', event)
+            # else:
+            #     raise Exception('Could not find subscriber for posted event', event)
 
     def addEventsWithMethods(self, event, method, thread_mode):
         self.method_mode[method] = thread_mode

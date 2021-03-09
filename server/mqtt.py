@@ -1,7 +1,7 @@
 import asyncio
 from asyncio_mqtt import Client, MqttError
 from server.eventbus import eventbus
-from server.events import MQTTConnectedEvent, MQTTMessage
+from server.events import MQTTConnectedEvent, MQTTMessageEvent
 from contextlib import AsyncExitStack
 
 
@@ -25,8 +25,7 @@ async def connect_mqtt(app):
         # Subscribe to topic(s)
         # Note that we subscribe *after* starting the message
         # loggers. Otherwise, we may miss retained messages.
-        task = asyncio.create_task(eventbus.post(MQTTConnectedEvent(client=client)))
-        tasks.add(task)
+        eventbus.post(MQTTConnectedEvent(client=client))
 
         # Wait for everything to complete (or fail due to, e.g., network
         # errors)
@@ -35,10 +34,10 @@ async def connect_mqtt(app):
 
 async def emit_messages(messages):
     async for message in messages:
-        asyncio.create_task(eventbus.post(MQTTMessage(
+        eventbus.post(MQTTMessageEvent(
             topic=message.topic,
             payload=message.payload.decode()
-        )))
+        ))
 
 
 async def cancel_tasks(tasks):
