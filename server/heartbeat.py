@@ -107,7 +107,7 @@ class Heartbeat:
         self.device_trackers = {}
         eventbus.register(self, self.__class__.__name__)
 
-    @subscribe(on_event=DeviceAddedEvent, thread_mode=Mode.COROUTINE)
+    @subscribe(on_event=DeviceAddedEvent)
     def handle_device_added(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()
@@ -123,9 +123,8 @@ class Heartbeat:
             del self.device_trackers[event.device.identifier]
 
     @subscribe(on_event=MQTTConnectedEvent)
-    def handle_mqtt_connect(self, event):
-        self.mqtt = event.client
-        self.mqtt.subscribe('{}#'.format(SCANNERS_TOPIC))
+    async def handle_mqtt_connect(self, event):
+        await event.client.subscribe('{}#'.format(SCANNERS_TOPIC))
 
     @subscribe(on_event=MQTTMessageEvent)
     def handle_mqtt_message(self, event):

@@ -1,7 +1,8 @@
-from server.events import DeviceAddedEvent, DeviceRemovedEvent, StartRecordingSignalsEvent
+from server.events import DeviceAddedEvent, DeviceRemovedEvent
 from server.eventbus import eventbus
+from tortoise.signals import post_delete, post_save
 from tortoise.models import Model
-from tortoise import fields
+from tortoise import fields, Tortoise
 
 
 class Base(Model):
@@ -22,20 +23,14 @@ class DeviceHeartbeat(Base, TimestampMixin):
     signals = fields.JSONField()
 
 
-class Device(Base):
-    name = Column(String)
-    uuid = Column(String)
-    use_name_as_id = Column(Boolean)
-    display_name = Column(String)
-    latest_signal = Column(DateTime)
-    current_room_id = Column(Integer, ForeignKey('room.id'))
-    current_room = relationship('Room', back_populates='devices')
-    active_prediction_model_id = Column(Integer, ForeignKey('predictionmodel.id'))
-    active_prediction_model = relationship('PredictionModel')
-    prediction_models = relationship(
-        "PredictionModel",
-        secondary=device_predict_association_table,
-        back_populates="devices")
+class Device(Base, TimestampMixin):
+    name = fields.CharField(max_length=100)
+    uuid = fields.CharField(max_length=100)
+    use_name_as_id = fields.BooleanField()
+    display_name = fields.CharField(max_length=100)
+    latest_signal = fields.DatetimeField()
+    current_room = fields.ForeignKeyField('models.Room', related_name='devices')
+    active_prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='active_devices')
 
     @property
     def identifier(self):
@@ -43,85 +38,39 @@ class Device(Base):
         return identifier or self.uuid
 
 
-class Room(Base):
-    name = Column(String)
-    devices = relationship('Device', back_populates='current_room')
-    prediction_models = relationship(
-        "PredictionModel",
-        secondary=room_predict_association_table,
-        back_populates="rooms")
+class Room(Base, TimestampMixin):
+    name = fields.CharField(max_length=100)
 
 
-class Scanner(Base):
-    uuid = Column(String)
-    name = Column(String)
-    display_name = Column(String)
-    latest_signal = Column(DateTime)
-    prediction_models = relationship(
-        "PredictionModel",
-        secondary=scanner_predict_association_table,
-        back_populates="scanners")
+class Scanner(Base, TimestampMixin):
+    name = fields.CharField(max_length=100)
+    uuid = fields.CharField(max_length=100)
+    display_name = fields.CharField(max_length=100)
+    latest_signal = fields.DatetimeField()
 
 
-class PredictionModel(Base):
-    display_name = Column(String)
-    inputs_hash = Column(String)
-    accuracy = Column(Float)
-    model = Column(LargeBinary)
-    devices = relationship(
-        "Device",
-        secondary=device_predict_association_table,
-        back_populates="prediction_models")
-    rooms = relationship(
-        "Room",
-        secondary=room_predict_association_table,
-        back_populates="prediction_models")
-    scanners = relationship(
-        "Scanner",
-        secondary=scanner_predict_association_table,
-        back_populates="prediction_models")
+class PredictionModel(Base, TimestampMixin):
+    display_name = fields.CharField(max_length=100)
+    inputs_hash = fields.CharField(max_length=100)
+    accuracy = fields.FloatField()
+    model = fields.BinaryField()
+    # device = fields.ForeignKeyField('models.Device', related_name='in_prediction_models')
 
 
-@event.listens_for(Device, 'after_insert')
-def emit_device_added(mapper, connection, target):
-    eventbus.post(DeviceAddedEvent(device=target))
+@post_save(Device)
+async def emit_device_added(sender, instance, created, using_db, update_fields):
+    eventbus.post(DeviceAddedEvent(device=instance))
 
 
-@event.listens_for(Device, 'after_delete')
-def emit_device_removed(mapper, connection, target):
-    eventbus.post(DeviceRemovedEvent(device=target))
+@post_delete(Device)
+async def emit_device_removed(sender, instance, using_db):
+    eventbus.post(DeviceRemovedEvent(device=instance))
 
 
 async def init_db(app):
-    engine = create_async_engine("sqlite:///:memory:", echo=True)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-
-    # expire_on_commit=False will prevent attributes from being expired
-    # after commit.
-    async_session = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
-
-    app['db'] = async_session
-
-    async with async_session() as session:
-        session.add(Room(name='Office'))
-        session.add(Scanner(uuid="office", name=""))
-        session.add(Scanner(uuid="kitchen", name=""))
-        session.add(Scanner(uuid="lobby", name=""))
-        # session.add(Device(name="room-presence", uuid="40978e03b915"))
-        # session.add(Device(name="Mi Smart Band 4", uuid="cf4ffda76286"))
-        session.add(Device(name="iPhone (Anna)", uuid="4debad57eb66", use_name_as_id=True))
-        session.commit()
-
-        eventbus.post(StartRecordingSignalsEvent(
-            device=session.query(Device).first(),
-            room=session.query(Room).first()
-        ))
+    await Tortoise.init(db_url="sqlite://:memory:", modules={"models": ["server.models"]})
+    await Tortoise.generate_schemas()
 
 
 async def close_db(app):
-    pass
+    await Tortoise.close_connections()

@@ -1,6 +1,4 @@
 import time
-from threading import Thread
-import functools
 
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
@@ -12,44 +10,16 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 from server.constants import MAX_DISTANCE
-from server.eventbus import subscribe, eventbus, Mode
+from server.eventbus import subscribe, eventbus
 from server.events import (
     HeartbeatEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent)
-from server.models import Room, Scanner, DeviceHeartbeat, Session
+from server.models import Room, Scanner, DeviceHeartbeat
 
 
-def timeout(timeout):
-    def deco(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            res = [Exception('function [%s] timeout [%s seconds] exceeded!' % (
-                func.__name__, timeout))]
-
-            def newFunc():
-                try:
-                    res[0] = func(*args, **kwargs)
-                except Exception as e:
-                    res[0] = e
-            t = Thread(target=newFunc)
-            t.daemon = True
-            try:
-                t.start()
-                t.join(timeout)
-            except Exception as je:
-                raise je
-            ret = res[0]
-            if isinstance(ret, BaseException):
-                raise ret
-            return ret
-        return wrapper
-    return deco
-
-
-def prepare_training_data(device):
-    session = Session()
-    heartbeats = session.query(DeviceHeartbeat).filter(device_id=device.id)
-    rooms = session.query(Room)
-    scanners = session.query(Scanner).order_by(Scanner.id)
+async def prepare_training_data(device):
+    heartbeats = await DeviceHeartbeat.filter(device_id=device.id)
+    rooms = await Room.all()
+    scanners = await Scanner.all()
 
     if set(r.id for r in rooms) != set(h.room_id for h in heartbeats):
         raise Exception('Not every room covered with data')
@@ -71,16 +41,10 @@ def prepare_training_data(device):
     return X_data, y_data
 
 
-@timeout(10)
-def train(clf, x, y):
-    return clf.fit(x, y)
-
-
 class Learn:
     def __init__(self):
         self.recording_room = None
         self.recording_device = None
-        self.db_session = Session()
         eventbus.register(self, self.__class__.__name__)
 
     @subscribe(on_event=StartRecordingSignalsEvent)
@@ -93,25 +57,24 @@ class Learn:
         self.recording_room = None
         self.recording_device = None
 
-    @subscribe(thread_mode=Mode.BACKGROUND, on_event=HeartbeatEvent)
-    def handle_device_heartbeat(self, event):
+    @subscribe(on_event=HeartbeatEvent)
+    async def handle_device_heartbeat(self, event):
         if (not event.signals
                 or not self.recording_room
                 or not self.recording_device
                 or event.device != self.recording_device):
             return
 
-        self.db_session.add(DeviceHeartbeat(
+        await DeviceHeartbeat.create(
             device_id=event.device.id,
             room_id=self.recording_room.id,
             signals=event.signals,
-        ))
-        self.db_session.commit()
+        )
 
-    @subscribe(thread_mode=Mode.COROUTINE, on_event=TrainPredictionModelEvent)
-    def handle_train_model(self, event):
+    @subscribe(on_event=TrainPredictionModelEvent)
+    async def handle_train_model(self, event):
         device = event.device
-        X, y = prepare_training_data(event.device)
+        X, y = await prepare_training_data(event.device)
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
         algorithms = {}
@@ -137,7 +100,7 @@ class Learn:
             t2 = time.time()
             log_progress("learning {}".format(name))
             try:
-                algorithms[name] = train(clf, X_train, y_train)
+                algorithms[name] = clf.train(X_train, y_train)
                 accuracies[name] = algorithms[name].score(X_test, y_test)
                 log_progress("learned {}, accuracy {}, in {:d} ms".format(
                     name, accuracies[name], int(1000 * (t2 - time.time()))))

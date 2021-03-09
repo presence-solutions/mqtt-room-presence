@@ -9,7 +9,6 @@ class Sensor:
     @subscribe(on_event=MQTTConnectedEvent)
     def handle_mqtt_connect(self, event):
         print('connected', flush=True)
-        self.mqtt = event.client
 
     @subscribe(on_event=OccupancyEvent)
     def handle_device_occupancy(self, event):

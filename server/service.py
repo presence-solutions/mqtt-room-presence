@@ -4,7 +4,7 @@ from server.heartbeat import Heartbeat
 from server.learn import Learn
 from server.predict import Predict
 from server.sensor import Sensor
-from server.models import Session, Device
+from server.models import Device
 
 
 class Service:
@@ -14,15 +14,14 @@ class Service:
         self.predict = Predict()
         self.sensor = Sensor()
 
-        self.init_devices()
-
-    def init_devices(self):
-        session = Session()
-        devices = session.query(Device).all()
+    async def init_devices(self):
+        devices = await Device.all()
 
         for device in devices:
             eventbus.post(DeviceAddedEvent(device=device))
 
 
-def start_service(app):
-    pass
+async def start_service(app):
+    service = Service()
+    app['service'] = service
+    await service.init_devices()
