@@ -84,13 +84,13 @@ class DeviceTracker:
         return filtered_signal
 
     async def wait_for_signal(self):
-        asyncio.sleep(HEARTBEAT_SIGNAL_WAIT_SEC)
+        await asyncio.sleep(HEARTBEAT_SIGNAL_WAIT_SEC)
         eventbus.post(HeartbeatEvent(
             device=self.device, signals=None, timestamp=datetime.now()))
         self.track()
 
-    def send_heartbeat(self):
-        asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
+    async def send_heartbeat(self):
+        await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
 
         if self.state != DeviceTracker.COLLECTING_DATA:
             return

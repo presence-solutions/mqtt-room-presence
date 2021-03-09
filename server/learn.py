@@ -1,4 +1,6 @@
 import time
+import concurrent.futures
+import asyncio
 
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
@@ -41,6 +43,23 @@ async def prepare_training_data(device):
     return X_data, y_data
 
 
+def log_progress(device, message, **kwargs):
+    print(message)
+    eventbus.post(TrainingProgressEvent(device=device, message=message, **kwargs))
+
+
+def train_model(device, name, clf, X_train, y_train):
+    t2 = time.time()
+    log_progress(device, "learning {}".format(name))
+    try:
+        algorithm = clf.train(X_train, y_train)
+        log_progress(device, "learned {}, in {:d} ms".format(name, int(1000 * (t2 - time.time()))))
+        return name, algorithm
+    except Exception as e:
+        log_progress("{} {}".format(name, str(e)), is_error=True)
+        return name, None
+
+
 class Learn:
     def __init__(self):
         self.recording_room = None
@@ -74,11 +93,10 @@ class Learn:
     @subscribe(on_event=TrainPredictionModelEvent)
     async def handle_train_model(self, event):
         device = event.device
+        loop = asyncio.get_running_loop()
         X, y = await prepare_training_data(event.device)
         X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
-        algorithms = {}
-        accuracies = {}
         classifiers = {
             "Nearest Neighbors": KNeighborsClassifier(3),
             "Linear SVM": SVC(kernel="linear", C=0.025, probability=True),
@@ -92,17 +110,11 @@ class Learn:
             "QDA": QuadraticDiscriminantAnalysis()
         }
 
-        def log_progress(message, **kwargs):
-            print(message)
-            eventbus.post(TrainingProgressEvent(device=device, message=message, **kwargs))
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            def run_train_coroutine(name, clf):
+                return loop.run_in_executor(pool, train_model, device, name, clf, X_train, y_train)
 
-        for name, clf in classifiers.items():
-            t2 = time.time()
-            log_progress("learning {}".format(name))
-            try:
-                algorithms[name] = clf.train(X_train, y_train)
-                accuracies[name] = algorithms[name].score(X_test, y_test)
-                log_progress("learned {}, accuracy {}, in {:d} ms".format(
-                    name, accuracies[name], int(1000 * (t2 - time.time()))))
-            except Exception as e:
-                log_progress("{} {}".format(name, str(e)), is_error=True)
+            train_coros = [run_train_coroutine(name, clf) for name, clf in classifiers.items()]
+
+        await asyncio.gather(*train_coros)
+

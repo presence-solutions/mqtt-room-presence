@@ -26,11 +26,11 @@ class DeviceHeartbeat(Base, TimestampMixin):
 class Device(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
     uuid = fields.CharField(max_length=100)
-    use_name_as_id = fields.BooleanField()
-    display_name = fields.CharField(max_length=100)
-    latest_signal = fields.DatetimeField()
-    current_room = fields.ForeignKeyField('models.Room', related_name='devices')
-    active_prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='active_devices')
+    use_name_as_id = fields.BooleanField(default=False)
+    display_name = fields.CharField(max_length=100, default='')
+    latest_signal = fields.DatetimeField(null=True)
+    current_room = fields.ForeignKeyField('models.Room', related_name='devices', null=True)
+    active_prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='active_devices', null=True)
 
     @property
     def identifier(self):
@@ -44,16 +44,16 @@ class Room(Base, TimestampMixin):
 
 class Scanner(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100)
-    display_name = fields.CharField(max_length=100)
-    latest_signal = fields.DatetimeField()
+    uuid = fields.CharField(max_length=100, default='')
+    display_name = fields.CharField(max_length=100, default='')
+    latest_signal = fields.DatetimeField(null=True)
 
 
 class PredictionModel(Base, TimestampMixin):
     display_name = fields.CharField(max_length=100)
     inputs_hash = fields.CharField(max_length=100)
-    accuracy = fields.FloatField()
-    model = fields.BinaryField()
+    accuracy = fields.FloatField(default=0)
+    model = fields.BinaryField(null=True)
     # device = fields.ForeignKeyField('models.Device', related_name='in_prediction_models')
 
 
