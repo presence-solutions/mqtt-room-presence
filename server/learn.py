@@ -12,7 +12,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 from server.constants import MAX_DISTANCE
-from server.eventbus import subscribe, eventbus
+from server.eventbus import EventBusSubscriber, subscribe, eventbus
 from server.events import (
     HeartbeatEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent)
 from server.models import Room, Scanner, DeviceHeartbeat
@@ -60,23 +60,23 @@ def train_model(device, name, clf, X_train, y_train):
         return name, None
 
 
-class Learn:
+class Learn(EventBusSubscriber):
     def __init__(self):
+        super().__init__()
         self.recording_room = None
         self.recording_device = None
-        eventbus.register(self, self.__class__.__name__)
 
-    @subscribe(on_event=StartRecordingSignalsEvent)
+    @subscribe(StartRecordingSignalsEvent)
     def handle_start_recording(self, event):
         self.recording_room = event.room
         self.recording_device = event.device
 
-    @subscribe(on_event=StopRecordingSignalsEvent)
+    @subscribe(StopRecordingSignalsEvent)
     def handle_stop_recording(self, event):
         self.recording_room = None
         self.recording_device = None
 
-    @subscribe(on_event=HeartbeatEvent)
+    @subscribe(HeartbeatEvent)
     async def handle_device_heartbeat(self, event):
         if (not event.signals
                 or not self.recording_room
@@ -90,7 +90,7 @@ class Learn:
             signals=event.signals,
         )
 
-    @subscribe(on_event=TrainPredictionModelEvent)
+    @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):
         device = event.device
         loop = asyncio.get_running_loop()

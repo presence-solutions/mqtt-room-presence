@@ -1,6 +1,6 @@
 import asyncio
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
-from server.eventbus import Mode, eventbus, subscribe
+from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
@@ -101,12 +101,12 @@ class DeviceTracker:
             device=self.device, signals=heartbeat_signals, timestamp=datetime.now()))
 
 
-class Heartbeat:
+class Heartbeat(EventBusSubscriber):
     def __init__(self):
+        super().__init__()
         self.device_trackers = {}
-        eventbus.register(self, self.__class__.__name__)
 
-    @subscribe(on_event=DeviceAddedEvent)
+    @subscribe(DeviceAddedEvent)
     def handle_device_added(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()
@@ -115,17 +115,17 @@ class Heartbeat:
         self.device_trackers[event.device.identifier] = tracker
         tracker.track()
 
-    @subscribe(on_event=DeviceRemovedEvent)
+    @subscribe(DeviceRemovedEvent)
     def handle_device_removed(self, event):
         if event.device.identifier in self.device_trackers:
             self.device_trackers[event.device.identifier].stop()
             del self.device_trackers[event.device.identifier]
 
-    @subscribe(on_event=MQTTConnectedEvent)
+    @subscribe(MQTTConnectedEvent)
     async def handle_mqtt_connect(self, event):
         await event.client.subscribe('{}#'.format(SCANNERS_TOPIC))
 
-    @subscribe(on_event=MQTTMessageEvent)
+    @subscribe(MQTTMessageEvent)
     def handle_mqtt_message(self, event):
         if not event.topic.startswith(SCANNERS_TOPIC):
             return

@@ -1,6 +1,5 @@
 from collections import namedtuple
 
-
 class DeviceSignalEvent(namedtuple(
     'DeviceSignalEvent',
     'uuid, name, tx, rx, distance, timestamp'
@@ -12,7 +11,11 @@ class HeartbeatEvent(namedtuple(
     'HeartbeatEvent',
     'device, signals, timestamp'
 )):
-    pass
+    async def as_dict(self):
+        from server.serializers import DeviceView
+        result = self._asdict()
+        result['device'] = (await DeviceView.from_tortoise_orm(result['device'])).dict()
+        return result
 
 
 class OccupancyEvent(namedtuple(
@@ -72,4 +75,8 @@ class TrainingProgressEvent(namedtuple(
     'TrainingProgressEvent',
     'device, message, is_error, is_final'
 )):
-    pass
+    async def as_dict(self):
+        from server.serializers import DeviceView
+        result = self._asdict()
+        result['device'] = (await DeviceView.from_tortoise_orm(result['device'])).dict()
+        return result
