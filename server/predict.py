@@ -8,5 +8,4 @@ class Predict:
 
     @subscribe(on_event=HeartbeatEvent)
     def handle_device_heartbeat(self, event):
-        print('predicting...', event)
-        # eventbus.post(OccupancyEvent())
+        pass

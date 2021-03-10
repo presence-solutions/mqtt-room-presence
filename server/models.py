@@ -30,7 +30,7 @@ class Device(Base, TimestampMixin):
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
     current_room = fields.ForeignKeyField('models.Room', related_name='devices', null=True)
-    active_prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='active_devices', null=True)
+    prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='used_by_devices', null=True)
 
     @property
     def identifier(self):
@@ -54,7 +54,8 @@ class PredictionModel(Base, TimestampMixin):
     inputs_hash = fields.CharField(max_length=100)
     accuracy = fields.FloatField(default=0)
     model = fields.BinaryField(null=True)
-    # device = fields.ForeignKeyField('models.Device', related_name='in_prediction_models')
+    devices = fields.ManyToManyField(
+        'models.Device', related_name='used_by_models', through='model_device')
 
 
 @post_save(Device)
