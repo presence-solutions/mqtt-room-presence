@@ -1,8 +1,9 @@
 from collections import namedtuple
 
+
 class DeviceSignalEvent(namedtuple(
     'DeviceSignalEvent',
-    'uuid, name, tx, rx, distance, timestamp'
+    'device, signal, scanner_uuid'
 )):
     pass
 
@@ -20,7 +21,7 @@ class HeartbeatEvent(namedtuple(
 
 class OccupancyEvent(namedtuple(
     'OccupancyEvent',
-    'device, room'
+    'device_id, room_id'
 )):
     pass
 
@@ -28,6 +29,13 @@ class OccupancyEvent(namedtuple(
 class MQTTConnectedEvent(namedtuple(
     'MQTTConnectedEvent',
     'client'
+)):
+    pass
+
+
+class MQTTDisconnectedEvent(namedtuple(
+    'MQTTDisconnectedEvent',
+    ''
 )):
     pass
 
@@ -40,15 +48,29 @@ class MQTTMessageEvent(namedtuple(
 
 
 class DeviceAddedEvent(namedtuple(
-    'DeviceAdded',
+    'DeviceAddedEvent',
     'device'
 )):
     pass
 
 
 class DeviceRemovedEvent(namedtuple(
-    'DeviceAdded',
+    'DeviceRemovedEvent',
     'device'
+)):
+    pass
+
+
+class RoomAddedEvent(namedtuple(
+    'RoomAddedEvent',
+    'room'
+)):
+    pass
+
+
+class RoomRemovedEvent(namedtuple(
+    'RoomRemovedEvent',
+    'room'
 )):
     pass
 

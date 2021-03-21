@@ -1,8 +1,8 @@
 import asyncio
-import rapidjson
+import jsons
 from asyncio_mqtt import Client, MqttError
 from server.eventbus import eventbus
-from server.events import MQTTConnectedEvent, MQTTMessageEvent
+from server.events import MQTTConnectedEvent, MQTTDisconnectedEvent, MQTTMessageEvent
 from contextlib import AsyncExitStack
 
 
@@ -37,7 +37,7 @@ async def emit_messages(messages):
     async for message in messages:
         eventbus.post(MQTTMessageEvent(
             topic=message.topic,
-            payload=rapidjson.loads(message.payload.decode())
+            payload=jsons.loads(message.payload.decode())
         ))
 
 
@@ -58,6 +58,7 @@ async def start_mqtt(app):
         try:
             await connect_mqtt(app)
         except MqttError as error:
+            eventbus.post(MQTTDisconnectedEvent())
             print(f'Error "{error}". Reconnecting in {reconnect_interval} seconds.')
         finally:
             await asyncio.sleep(reconnect_interval)

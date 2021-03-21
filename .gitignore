@@ -22,6 +22,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+data.sqlite3
+
 # python
 .venv
 __pycache__

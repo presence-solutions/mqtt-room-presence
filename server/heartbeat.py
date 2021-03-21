@@ -1,37 +1,47 @@
 import asyncio
-from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
+from server.events import DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
 from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, DEFAULT_TX_POWER, MAX_SIGNAL_BEATS_AGE, HEARTBEAT_COLLECT_PERIOD_SEC,
-    HEARTBEAT_SIGNAL_WAIT_SEC, MAX_DISTANCE, KALMAN_R, KALMAN_Q)
-
-
-def calculate_rssi_distance(signal):
-    measuredPower = DEFAULT_TX_POWER  # signal.get('txPower', DEFAULT_TX_POWER)
-    ratio = signal['filtered_rssi'] / measuredPower
-
-    if ratio < 1:
-        return round(pow(ratio, 10), 1)
-
-    return round(0.89976 * pow(ratio, 7.7095) + 0.111, 1)
+    SCANNERS_TOPIC, DEFAULT_TX_POWER, HEARTBEAT_COLLECT_PERIOD_SEC,
+    HEARTBEAT_SIGNAL_WAIT_SEC, KALMAN_R, KALMAN_Q, SCANNER_WAIT_TIMEOUT_SEC)
 
 
 def prepare_heratbeat(signals, latest_beat):
     final_signals = {}
-    for key, value in signals.items():
-        distance = value['distance']
-        if distance > MAX_DISTANCE or (latest_beat - value['beat_idx']) > MAX_SIGNAL_BEATS_AGE:
-            distance = MAX_DISTANCE
+    current_timestamp = datetime.now()
 
-        final_signals[key] = {
-            'distance': distance,
-            'filtered_rssi': value['filtered_rssi'],
-            'raw_rssi': value['raw_rssi'],
-        }
+    for key, value in signals.items():
+        if (current_timestamp - value['timestamp']).total_seconds() > SCANNER_WAIT_TIMEOUT_SEC:
+            final_signals[key] = {
+                'filtered_rssi': -100,
+                'raw_rssi': -100,
+            }
+        else:
+            final_signals[key] = {
+                'filtered_rssi': value['filtered_rssi'],
+                'raw_rssi': value['raw_rssi'],
+            }
 
     return final_signals
+
+
+def normalize_uuid(uuid: str):
+    return uuid.replace(':', '').lower()
+
+
+def normalize_tx_power(tx_power: str or int):
+    return -abs(int(tx_power))
+
+
+def normalize_scanner_payload(payload):
+    return {
+        'name': payload.get('name', ''),
+        'uuid': normalize_uuid(payload.get('uuid', '')),
+        'rssi': int(payload.get('rssi', '-100')),
+        'txPower': normalize_tx_power(payload.get('txPower', DEFAULT_TX_POWER)),
+    }
 
 
 class DeviceTracker:
@@ -66,7 +76,10 @@ class DeviceTracker:
             self.coroutine = asyncio.create_task(self.send_heartbeat())
 
         signal['beat_idx'] = self.beat_counter
-        self.latest_signals[scanner_uuid] = self.filter_signal(scanner_uuid, signal)
+        signal = self.filter_signal(scanner_uuid, signal)
+        self.latest_signals[scanner_uuid] = signal
+
+        eventbus.post(DeviceSignalEvent(device=self.device, signal=signal, scanner_uuid=scanner_uuid))
 
     def filter_signal(self, scanner_uuid, signal):
         scanner_filter = self.rssi_filters.get(scanner_uuid)
@@ -78,7 +91,7 @@ class DeviceTracker:
 
         filtered_signal['raw_rssi'] = filtered_signal['rssi']
         filtered_signal['filtered_rssi'] = scanner_filter.filter(filtered_signal['rssi'])
-        filtered_signal['distance'] = calculate_rssi_distance(filtered_signal)
+        filtered_signal['timestamp'] = datetime.now()
 
         return filtered_signal
 
@@ -130,12 +143,14 @@ class Heartbeat(EventBusSubscriber):
         if not event.topic.startswith(SCANNERS_TOPIC):
             return
 
-        device_uuid = event.payload.get('uuid')
-        device_name = event.payload.get('name')
-        tracker = self.device_trackers.get(device_uuid) or self.device_trackers.get(device_name)
+        payload = normalize_scanner_payload(event.payload)
+        tracker = (
+            self.device_trackers.get(payload['uuid'])
+            or self.device_trackers.get(payload['name'])
+        )
 
         if tracker:
             tracker.process_signal(
                 event.topic.split('/')[1],
-                event.payload
+                payload
             )
