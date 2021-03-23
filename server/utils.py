@@ -1,6 +1,23 @@
 from server.models import get_rooms_scanners
 
 
+def normalize_data_row(x_data_rows):
+    return x_data_rows
+
+
+def normalize_rssi_value(rssi):
+    """
+    Change RSSI value to be more suitable for ML algorithms.
+    The current version is based on the idea that the lower
+    value of the neuron the less significant that neuron is.
+    When we have no data and RSSI is -100 this function
+    will convert it to 0 which will kind of deactivate the neuron.
+    It gives a better result for NN classifier and do not impact too much
+    the other classifiers.
+    """
+    return 100 - abs(rssi)
+
+
 async def create_x_data_row(signals, scanners=None):
     if not scanners:
         rooms, scanners = await get_rooms_scanners()
@@ -8,9 +25,9 @@ async def create_x_data_row(signals, scanners=None):
     X_data_row = []
     for scanner in scanners:
         signal = signals.get(scanner.uuid, {})
-        X_data_row.append(signal.get('filtered_rssi', -100))
+        X_data_row.append(normalize_rssi_value(signal.get('filtered_rssi', -100)))
 
-    return X_data_row
+    return normalize_data_row(X_data_row)
 
 
 async def calculate_inputs_hash(rooms=None, scanners=None):

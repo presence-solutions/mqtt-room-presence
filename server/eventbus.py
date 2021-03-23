@@ -37,7 +37,7 @@ class EventBus:
         if event in self.event_method:
             self.event_method[event][method] = descriptor
         else:
-            self.event_method[event] = { method: descriptor }
+            self.event_method[event] = {method: descriptor}
 
 
 class EventBusMetaclass(type):

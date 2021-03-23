@@ -3,7 +3,9 @@ from server.constants import DEVICE_CHANGE_STATE_TIMES
 import jsons
 from server.models import Device
 from server.eventbus import EventBusSubscriber, subscribe
-from server.events import DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent, OccupancyEvent, RoomAddedEvent, RoomRemovedEvent
+from server.events import (
+    DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent,
+    OccupancyEvent, RoomAddedEvent, RoomRemovedEvent)
 
 
 def get_room_topic(room):
@@ -48,7 +50,11 @@ class DeviceState:
 
     async def update(self, new_room_id):
         if new_room_id == self.current_room_id:
+            self.new_room_id = None
+            self.new_room_counter = 0
             return
+
+        print('Maybe device {} is in {}?'.format(self.device.name, new_room_id))
 
         if new_room_id == self.new_room_id:
             self.new_room_counter += 1

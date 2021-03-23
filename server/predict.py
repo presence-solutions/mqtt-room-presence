@@ -1,7 +1,6 @@
 import asyncio
 import pickle
 import concurrent.futures
-from itertools import groupby
 from server.eventbus import eventbus
 from server.models import get_rooms_scanners
 from server.utils import calculate_inputs_hash, create_x_data_row

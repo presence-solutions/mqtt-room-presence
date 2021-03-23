@@ -1,5 +1,7 @@
 import asyncio
-from server.events import DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent
+from server.events import (
+    DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
+    StartRecordingSignalsEvent)
 from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
@@ -64,6 +66,10 @@ class DeviceTracker:
         if self.coroutine:
             self.coroutine.cancel()
 
+    @subscribe(StartRecordingSignalsEvent)
+    def handle_start_recording(self, event):
+        self.rssi_filters = {}
+
     def track(self):
         self.state = DeviceTracker.WAIT_FOR_SIGNAL
         self.coroutine = asyncio.create_task(self.wait_for_signal())
@@ -78,6 +84,9 @@ class DeviceTracker:
         signal['beat_idx'] = self.beat_counter
         signal = self.filter_signal(scanner_uuid, signal)
         self.latest_signals[scanner_uuid] = signal
+
+        print('Processed signal from {} / {}, rssi {} / {}'.format(
+            self.device.name, scanner_uuid, signal['rssi'], signal['filtered_rssi']))
 
         eventbus.post(DeviceSignalEvent(device=self.device, signal=signal, scanner_uuid=scanner_uuid))
 

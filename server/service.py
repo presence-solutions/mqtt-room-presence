@@ -46,10 +46,10 @@ class Service:
         # # await Device.filter(name="Artem").delete()
         # await Device.create(name="Artem", uuid="FDA50693A4E24FB1AFCFC6EB07647825".lower())
 
-        # await DeviceHeartbeat.filter(device_id=(await Device.get(name='Artem')).id).delete()
-        # await DeviceSignal.filter(device_id=(await Device.get(name='Artem')).id).delete()
+        # await DeviceHeartbeat.filter(device_id=(await Device.get(name='Mi Smart Band 4')).id).delete()
+        # await DeviceSignal.filter(device_id=(await Device.get(name='Mi Smart Band 4')).id).delete()
         # eventbus.post(StartRecordingSignalsEvent(
-        #     device=await Device.get(name='Artem'),
+        #     device=await Device.get(name='Mi Smart Band 4'),
         #     room=await Room.get(name='Bedroom')
         # ))
 
@@ -57,8 +57,9 @@ class Service:
         #     device=await Device.get(name='Artem'),
         # ))
 
-        # device = await Device.get(name='Mi Smart Band 4')
-        # device.prediction_model = await PredictionModel.filter(devices__id=(await Device.get(name='Artem')).id).first()
+        # device = await Device.get(name='Artem')
+        # pred_model = await PredictionModel.filter(devices__id=device.id).order_by('-created_at').first()
+        # device.prediction_model = pred_model
         # await device.save()
 
         # 215 46.153149 583 2021-03-19 07:01:05.189796+00:00
