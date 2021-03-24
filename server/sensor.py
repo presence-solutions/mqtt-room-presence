@@ -1,7 +1,7 @@
 import asyncio
 from server.constants import DEVICE_CHANGE_STATE_TIMES
 import jsons
-from server.models import Device
+from server.models import Device, Room
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent,
@@ -68,7 +68,8 @@ class DeviceState:
             self.new_room_counter = 0
 
             await Device.filter(id=self.device.id).update(current_room_id=self.current_room_id)
-            print('Device {} is in {}'.format(self.device.name, self.current_room_id))
+            room = await Room.get(id=self.current_room_id)
+            print('Device {} is in {}'.format(self.device.name, room.name))
 
     def is_in_room(self, room_id):
         return self.current_room_id == room_id

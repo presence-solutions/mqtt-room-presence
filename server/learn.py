@@ -1,6 +1,7 @@
 import pickle
 import concurrent.futures
 import asyncio
+from server.heartbeat import SimulatedDeviceTracker, normalize_scanner_payload
 from server.constants import LEARNING_WARMUP_DELAY
 from server.utils import calculate_inputs_hash, create_x_data_row
 
@@ -15,8 +16,9 @@ from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
-    DeviceSignalEvent, HeartbeatEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent)
-from server.models import DeviceSignal, PredictionModel, DeviceHeartbeat, Scanner, get_rooms_scanners
+    DeviceSignalEvent, HeartbeatEvent, RegenerateHeartbeatsEvent, StartRecordingSignalsEvent,
+    StopRecordingSignalsEvent, TrainPredictionModelEvent)
+from server.models import DeviceSignal, PredictionModel, DeviceHeartbeat, Room, Scanner, get_rooms_scanners
 
 
 async def prepare_training_data(device):
@@ -52,12 +54,31 @@ def train_model(name, clf, X_train, y_train, X_test, y_test):
 async def warmup_learning_process():
     """
     Wait when we receive signals from multiple scanners, to have
-    a as complete heartbeat as possible for a currently learning room
+    as complete heartbeat as possible for a currently learning room
     """
     print('Warming up the brain... {} seconds'.format(LEARNING_WARMUP_DELAY))
     await asyncio.sleep(LEARNING_WARMUP_DELAY)
     print('Alright! Lets learn!')
-    pass
+
+
+async def regenerate_heartbeats(device, room):
+    device_tracker = SimulatedDeviceTracker(device)
+    signals = await DeviceSignal.filter(device_id=device.id, room_id=room.id)\
+        .order_by('created_at').prefetch_related('scanner')
+
+    for s in signals:
+        device_tracker.process_signal(
+            scanner_uuid=s.scanner.uuid, signal=normalize_scanner_payload({'rssi': s.rssi}),
+            signal_timestamp=s.created_at)
+
+    new_heartbeats = [DeviceHeartbeat(
+        device_id=device.id,
+        room_id=room.id,
+        signals=h.signals,
+    ) for h in device_tracker.heartbeats]
+
+    await DeviceHeartbeat.filter(device_id=device.id, room_id=room.id).delete()
+    await DeviceHeartbeat.bulk_create(new_heartbeats)
 
 
 class Learn(EventBusSubscriber):
@@ -71,7 +92,7 @@ class Learn(EventBusSubscriber):
     def handle_start_recording(self, event):
         self.recording_room = event.room
         self.recording_device = event.device
-        self.warmup_coroutine = asyncio.create_task(warmup_learning_process)
+        self.warmup_coroutine = asyncio.create_task(warmup_learning_process())
 
     @subscribe(StopRecordingSignalsEvent)
     def handle_stop_recording(self, event):
@@ -79,11 +100,19 @@ class Learn(EventBusSubscriber):
         self.recording_device = None
         self.warmup_coroutine = None
 
+    @subscribe(RegenerateHeartbeatsEvent)
+    async def handle_regenerate_heartbeats(self, event):
+        print('Regenerating heartbeats')
+        rooms = await Room.all()
+        for r in rooms:
+            await regenerate_heartbeats(event.device, r)
+            print('Room {} regenerated'.format(r.name))
+
     def is_learning_started(self, device):
         return (self.warmup_coroutine
                 and self.warmup_coroutine.done()
                 and self.recording_room
-                and self.recording_device)
+                and self.recording_device == device)
 
     @subscribe(DeviceSignalEvent)
     async def handle_device_signal(self, event):
