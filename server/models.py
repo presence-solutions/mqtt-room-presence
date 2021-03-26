@@ -49,6 +49,8 @@ class Device(Base, TimestampMixin):
 
 class Room(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
+    scanners = fields.ManyToManyField(
+        'models.Scanner', related_name='used_in_rooms', through='room_scanner')
 
     class Meta:
         ordering = ["id"]
@@ -111,8 +113,7 @@ async def emit_room_removed(sender, instance, using_db):
 
 
 async def init_db(app):
-    await Tortoise.init(db_url="sqlite://data.sqlite3", modules={"models": ["server.models"]})
-    # await Tortoise.init(db_url="sqlite://:memory:", modules={"models": ["server.models"]})
+    await Tortoise.init(app['config'].TORTOISE_ORM)
     await Tortoise.generate_schemas()
 
 

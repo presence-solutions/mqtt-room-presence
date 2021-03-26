@@ -56,12 +56,3 @@ class Predict(EventBusSubscriber):
 
         results = await asyncio.gather(*results)
         eventbus.post(OccupancyEvent(device_id=event.device.id, room_id=results[0][1][0]))
-
-        # # print(results)
-        # def results_group_fn(x): return x[1][0]
-        # sorted_results = sorted(results, key=results_group_fn)
-        # counted_results = [(k, len(list(g))) for k, g in groupby(sorted_results, key=results_group_fn)]
-        # room_id, matches = max(counted_results, key=lambda x: x[1])
-
-        # if matches >= quorum_count:
-        #     eventbus.post(OccupancyEvent(device_id=event.device.id, room_id=room_id))

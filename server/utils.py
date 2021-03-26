@@ -1,8 +1,9 @@
 from server.models import get_rooms_scanners
+from sklearn import preprocessing
 
 
 def normalize_data_row(x_data_rows):
-    return x_data_rows
+    return preprocessing.normalize([x_data_rows], norm='l2')[0]
 
 
 def normalize_rssi_value(rssi):

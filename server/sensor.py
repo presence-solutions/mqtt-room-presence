@@ -44,35 +44,43 @@ class MQTTClientHolder(EventBusSubscriber):
 class DeviceState:
     def __init__(self, device):
         self.device = device
-        self.current_room_id = device.current_room_id
-        self.new_room_id = None
-        self.new_room_counter = 1
+        self.in_rooms = {}
+        self.new_rooms = None
 
-    async def update(self, new_room_id):
-        if new_room_id == self.current_room_id:
-            self.new_room_id = None
-            self.new_room_counter = 0
+    async def update_room(self, room_id, room_state):
+        if self.in_rooms.get(room_id, False) == room_state:
+            self.new_rooms[room_id] = (room_state, 1)
             return
 
-        print('Maybe device {} is in {}?'.format(self.device.name, new_room_id))
+        print('Maybe device {} state in room {} is {}?'.format(self.device.name, room_id, room_state))
 
-        if new_room_id == self.new_room_id:
-            self.new_room_counter += 1
+        maybe_room_state = self.new_rooms.get(room_id, (room_state, 1))
+
+        if maybe_room_state[0] == room_state:
+            maybe_room_state = (room_state, maybe_room_state[1] + 1)
         else:
-            self.new_room_id = new_room_id
-            self.new_room_counter = 1
+            maybe_room_state = (room_state, 1)
 
-        if self.new_room_counter >= DEVICE_CHANGE_STATE_TIMES or (not self.current_room_id and self.new_room_id):
-            self.current_room_id = self.new_room_id
-            self.new_room_id = None
-            self.new_room_counter = 0
+        if maybe_room_state[1] >= DEVICE_CHANGE_STATE_TIMES:
+            maybe_room_state = (maybe_room_state[0], 1)
+            self.in_rooms[room_id] = maybe_room_state[0]
 
-            await Device.filter(id=self.device.id).update(current_room_id=self.current_room_id)
-            room = await Room.get(id=self.current_room_id)
-            print('Device {} is in {}'.format(self.device.name, room.name))
+            print('Device {} changed state in room {} to {}'.format(self.device.name, room_id, maybe_room_state[0]))
+
+        self.new_rooms[room_id] = maybe_room_state
+
+    async def update(self, room_occupancy):
+        if self.new_rooms is None:
+            self.new_rooms = {}
+            self.in_rooms = dict(room_occupancy)
+        else:
+            merged_occupancy = dict(self.in_rooms)
+            merged_occupancy.update(room_occupancy)
+            results = (self.update_room(r, s) for r, s in merged_occupancy.items())
+            await asyncio.gather(*results)
 
     def is_in_room(self, room_id):
-        return self.current_room_id == room_id
+        return self.in_rooms.get(room_id, False)
 
 
 class RoomTracker(EventBusSubscriber):
@@ -147,5 +155,5 @@ class Sensor(EventBusSubscriber):
         if event.device_id not in self.device_states:
             return
 
-        await self.device_states[event.device_id].update(event.room_id)
+        await self.device_states[event.device_id].update(event.room_occupancy)
         await self.recompute_state()

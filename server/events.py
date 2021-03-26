@@ -21,7 +21,7 @@ class HeartbeatEvent(namedtuple(
 
 class OccupancyEvent(namedtuple(
     'OccupancyEvent',
-    'device_id, room_id'
+    'device_id, room_occupancy'
 )):
     pass
 

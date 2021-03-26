@@ -1,16 +1,16 @@
 import logging
 from aiohttp import web
+from server import config
 from server.mqtt import setup_mqtt
 from server.socketio import socketio
 from server.service import start_service
 from server.api import setup_routes
 from server.models import init_db, close_db
-from server.config.base import Config
 
 logging.basicConfig(level=logging.INFO)
 
 app = web.Application()
-app['config'] = Config
+app['config'] = config
 
 setup_routes(app)
 socketio.attach(app)
