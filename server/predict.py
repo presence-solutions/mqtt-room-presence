@@ -20,11 +20,15 @@ class Predict(EventBusSubscriber):
 
     @subscribe(DeviceAddedEvent)
     async def handle_device_added(self, event):
-        model = await event.device.prediction_model
-        if not model:
+        if not event.device.prediction_model:
             return
 
-        self.prediction_models[event.device.id] = (pickle.loads(model.model), model.inputs_hash)
+        model = await event.device.prediction_model
+
+        if not model and event.device.id in self.prediction_models:
+            del self.prediction_models[event.device.id]
+        else:
+            self.prediction_models[event.device.id] = (pickle.loads(model.model), model.inputs_hash)
 
     @subscribe(DeviceRemovedEvent)
     def handle_device_removed(self, event):
@@ -36,7 +40,7 @@ class Predict(EventBusSubscriber):
             return
 
         if not event.signals:
-            eventbus.post(OccupancyEvent(device_id=event.device.id, room_id=None))
+            eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=[]))
             return
 
         loop = asyncio.get_running_loop()
@@ -47,12 +51,17 @@ class Predict(EventBusSubscriber):
         if inputs_hash != curr_inputs_hash:
             return
 
+        used_models = [a[0] for a in sorted(algorithms, key=lambda x: -x[2]) if a[2] > 0.9][:3]
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             def run_predict_coroutine(algorithm, data):
                 return loop.run_in_executor(pool, predict_presence, algorithm, data)
 
-            x_data = await create_x_data_row(event.signals, scanners=scanners)
-            results = [run_predict_coroutine(a, x_data) for a in algorithms if a[0] == 'Neural Net']
+            x_data = create_x_data_row(event.signals, scanners)
+            results = [run_predict_coroutine(a, x_data) for a in algorithms if a[0] in used_models]
 
         results = await asyncio.gather(*results)
-        eventbus.post(OccupancyEvent(device_id=event.device.id, room_id=results[0][1][0]))
+        room_occupancy = dict((r[1][0], True) for r in results)
+
+        print('Prediction for {}: {}'.format(event.device.name, results))
+        eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=room_occupancy))

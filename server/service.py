@@ -51,14 +51,14 @@ class Service:
         # await Device.create(name="Mi Smart Band 4", uuid="cf4ffda76286")
         # await Device.create(name="Artem", uuid="FDA50693A4E24FB1AFCFC6EB07647825".lower())
 
-        # device = await Device.get(name='Artem')
+        device = await Device.get(name='Artem')
 
-        # await DeviceHeartbeat.filter(device_id=(await Device.get(name='Mi Smart Band 4')).id).delete()
-        # await DeviceSignal.filter(device_id=(await Device.get(name='Mi Smart Band 4')).id).delete()
+        # await DeviceHeartbeat.filter(device_id=device.id).delete()
+        # await DeviceSignal.filter(device_id=device.id).delete()
 
         # eventbus.post(StartRecordingSignalsEvent(
         #     device=device,
-        #     room=await Room.get(name='Lobby')
+        #     room=await Room.get(name='Bedroom')
         # ))
 
         # eventbus.post(RegenerateHeartbeatsEvent(

@@ -7,7 +7,7 @@ from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
     SCANNERS_TOPIC, DEFAULT_TX_POWER, HEARTBEAT_COLLECT_PERIOD_SEC,
-    HEARTBEAT_SIGNAL_WAIT_SEC, KALMAN_R, KALMAN_Q, SCANNER_WAIT_TIMEOUT_SEC)
+    HEARTBEAT_SIGNAL_WAIT_SEC, KALMAN_R, KALMAN_Q, SILENT_SCANNER_PENALTY)
 
 
 def normalize_uuid(uuid: str):
@@ -127,7 +127,7 @@ class DeviceTracker:
                 continue
 
             scanner_filter = self.rssi_filters[scanner_uuid]
-            value['rssi'] = value['rssi'] if value['rssi'] <= -100 else value['rssi'] - 2
+            value['rssi'] = value['rssi'] if value['rssi'] <= -100 else value['rssi'] - SILENT_SCANNER_PENALTY
             value['raw_rssi'] = value['rssi']
             value['filtered_rssi'] = scanner_filter.filter(value['rssi'])
 
@@ -153,12 +153,11 @@ class SimulatedDeviceTracker(DeviceTracker):
 
         diff_secs = (signal_timestamp - self.signal_timestamp).total_seconds()
         if diff_secs > HEARTBEAT_COLLECT_PERIOD_SEC:
+            self.signal_timestamp = signal_timestamp
             self.penalize_silent_scanners()
             self.heartbeats.append(HeartbeatEvent(
                 device=self.device, signals=prepare_heratbeat(self.latest_signals),
                 timestamp=signal_timestamp))
-
-        self.signal_timestamp = signal_timestamp
 
     async def wait_for_signal(self):
         pass

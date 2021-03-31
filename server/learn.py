@@ -1,11 +1,12 @@
 import pickle
 import concurrent.futures
 import asyncio
+
 from server.heartbeat import SimulatedDeviceTracker, normalize_scanner_payload
-from server.constants import LEARNING_WARMUP_DELAY
+from server.constants import LEARNING_WARMUP_DELAY, SIGNAL_SIMILARITY_BOUND
 from server.utils import calculate_inputs_hash, create_x_data_row
 
-from sklearn.model_selection import train_test_split
+from scipy.spatial.distance import cdist
 from sklearn.neural_network import MLPClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
@@ -32,7 +33,7 @@ async def prepare_training_data(device):
     X_data = []
     y_data = []
     for heartbeat in heartbeats:
-        X_data_row = await create_x_data_row(heartbeat.signals, scanners)
+        X_data_row = create_x_data_row(heartbeat.signals, scanners)
         y_data_row = heartbeat.room_id
         X_data.append(X_data_row)
         y_data.append(y_data_row)
@@ -40,11 +41,11 @@ async def prepare_training_data(device):
     return X_data, y_data, inputs_hash
 
 
-def train_model(name, clf, X_train, y_train, X_test, y_test):
+def train_model(name, clf, X, y):
     try:
         print('learning {}'.format(name))
-        algorithm = clf.fit(X_train, y_train)
-        score = clf.score(X_test, y_test)
+        algorithm = clf.fit(X, y)
+        score = clf.score(X, y)
         print('finished {}'.format(name))
         return name, algorithm, score, None
     except Exception as e:
@@ -61,7 +62,8 @@ async def warmup_learning_process():
     print('Alright! Lets learn!')
 
 
-async def regenerate_heartbeats(device, room):
+async def regenerate_heartbeats(device, room, buffer=None):
+    buffer = buffer or HeartbeatsSimilarityBuffer()
     device_tracker = SimulatedDeviceTracker(device)
     signals = await DeviceSignal.filter(device_id=device.id, room_id=room.id)\
         .order_by('created_at').prefetch_related('scanner')
@@ -75,10 +77,31 @@ async def regenerate_heartbeats(device, room):
         device_id=device.id,
         room_id=room.id,
         signals=h.signals,
-    ) for h in device_tracker.heartbeats]
+    ) for h in device_tracker.heartbeats if buffer.maybe_add_heartbeat(h.signals)]
 
     await DeviceHeartbeat.filter(device_id=device.id, room_id=room.id).delete()
     await DeviceHeartbeat.bulk_create(new_heartbeats)
+
+
+class HeartbeatsSimilarityBuffer:
+    def __init__(self, scanners):
+        self.signals = []
+        self.scanners = scanners
+
+    def maybe_add_heartbeat(self, signals):
+        data_row = create_x_data_row(signals, self.scanners)
+
+        if len(self.signals):
+            distances = cdist(self.signals, [data_row], 'euclidean')
+            if any(d < SIGNAL_SIMILARITY_BOUND for d in distances):
+                return False
+
+        self.signals.append(data_row)
+        return True
+
+    async def init_from_device(self, device):
+        heartbeats = await DeviceHeartbeat.filter(device=device)
+        self.signals = [create_x_data_row(h.signals, self.scanners) for h in heartbeats]
 
 
 class Learn(EventBusSubscriber):
@@ -89,23 +112,29 @@ class Learn(EventBusSubscriber):
         self.warmup_coroutine = None
 
     @subscribe(StartRecordingSignalsEvent)
-    def handle_start_recording(self, event):
+    async def handle_start_recording(self, event):
         self.recording_room = event.room
         self.recording_device = event.device
         self.warmup_coroutine = asyncio.create_task(warmup_learning_process())
+
+        _, scanners = await get_rooms_scanners()
+        self.similarity_buffer = HeartbeatsSimilarityBuffer(scanners)
+        await self.similarity_buffer.init_from_device(event.device)
 
     @subscribe(StopRecordingSignalsEvent)
     def handle_stop_recording(self, event):
         self.recording_room = None
         self.recording_device = None
         self.warmup_coroutine = None
+        self.similarity_buffer = None
 
     @subscribe(RegenerateHeartbeatsEvent)
     async def handle_regenerate_heartbeats(self, event):
+        rooms, scanners = await get_rooms_scanners()
+        buffer = HeartbeatsSimilarityBuffer(scanners)
         print('Regenerating heartbeats')
-        rooms = await Room.all()
         for r in rooms:
-            await regenerate_heartbeats(event.device, r)
+            await regenerate_heartbeats(event.device, r, buffer)
             print('Room {} regenerated'.format(r.name))
 
     def is_learning_started(self, device):
@@ -140,15 +169,17 @@ class Learn(EventBusSubscriber):
         if not event.signals or not self.is_learning_started(event.device):
             return
 
-        learned_heartbeats = await DeviceHeartbeat.filter(
-            device_id=event.device.id, room_id=self.recording_room.id).count()
-        print('Learned heartbeats: {}'.format(learned_heartbeats + 1))
+        if not self.similarity_buffer.maybe_add_heartbeat(event.signals):
+            print('Skipped similar heartbeat!')
+            return
 
         await DeviceHeartbeat.create(
             device_id=event.device.id,
             room_id=self.recording_room.id,
             signals=event.signals,
         )
+
+        print('Learned heartbeats: {}'.format(len(self.similarity_buffer.signals)))
 
     @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):
@@ -157,12 +188,11 @@ class Learn(EventBusSubscriber):
         device = event.device
         loop = asyncio.get_running_loop()
         X, y, inputs_hash = await prepare_training_data(event.device)
-        X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
         print('Prepared a training set')
 
         classifiers = {
-            "Nearest Neighbors": KNeighborsClassifier(3),
+            "Nearest Neighbors": KNeighborsClassifier(5),
             "Linear SVM": SVC(kernel="linear", C=0.025, probability=True),
             "RBF SVM": SVC(gamma=2, C=1, probability=True),
             "Decision Tree": DecisionTreeClassifier(max_depth=5),
@@ -178,7 +208,7 @@ class Learn(EventBusSubscriber):
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
             def run_train_coroutine(name, clf):
-                return loop.run_in_executor(pool, train_model, name, clf, X_train, y_train, X_test, y_test)
+                return loop.run_in_executor(pool, train_model, name, clf, X, y)
 
             train_coros = [run_train_coroutine(name, clf) for name, clf in classifiers.items()]
 

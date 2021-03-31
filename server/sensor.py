@@ -74,7 +74,8 @@ class DeviceState:
             self.new_rooms = {}
             self.in_rooms = dict(room_occupancy)
         else:
-            merged_occupancy = dict(self.in_rooms)
+            merged_occupancy = dict((r, False) for r, v in self.in_rooms.items())
+            merged_occupancy.update(dict((r, False) for r, v in self.new_rooms.items()))
             merged_occupancy.update(room_occupancy)
             results = (self.update_room(r, s) for r, s in merged_occupancy.items())
             await asyncio.gather(*results)

@@ -3,6 +3,7 @@ from sklearn import preprocessing
 
 
 def normalize_data_row(x_data_rows):
+    # return x_data_rows
     return preprocessing.normalize([x_data_rows], norm='l2')[0]
 
 
@@ -16,13 +17,10 @@ def normalize_rssi_value(rssi):
     It gives a better result for NN classifier and do not impact too much
     the other classifiers.
     """
-    return 100 - abs(rssi)
+    return (rssi + 108) / (108 - 59)
 
 
-async def create_x_data_row(signals, scanners=None):
-    if not scanners:
-        rooms, scanners = await get_rooms_scanners()
-
+def create_x_data_row(signals, scanners):
     X_data_row = []
     for scanner in scanners:
         signal = signals.get(scanner.uuid, {})

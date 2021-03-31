@@ -1,1 +1,1 @@
-from server.config.base import *
+from .base import *
