@@ -3,10 +3,9 @@ import concurrent.futures
 import asyncio
 
 from server.heartbeat import SimulatedDeviceTracker, normalize_scanner_payload
-from server.constants import LEARNING_WARMUP_DELAY, SIGNAL_SIMILARITY_BOUND
+from server.constants import HEARTBEAT_COLLECT_PERIOD_SEC, LEARNING_WARMUP_DELAY_SEC
 from server.utils import calculate_inputs_hash, create_x_data_row
 
-from scipy.spatial.distance import cdist
 from sklearn.neural_network import MLPClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
@@ -19,7 +18,8 @@ from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
     DeviceSignalEvent, HeartbeatEvent, RegenerateHeartbeatsEvent, StartRecordingSignalsEvent,
     StopRecordingSignalsEvent, TrainPredictionModelEvent)
-from server.models import DeviceSignal, PredictionModel, DeviceHeartbeat, Room, Scanner, get_rooms_scanners
+from server.models import (
+    DeviceSignal, PredictionModel, DeviceHeartbeat, Scanner, LearningSession, get_rooms_scanners)
 
 
 async def prepare_training_data(device):
@@ -57,51 +57,47 @@ async def warmup_learning_process():
     Wait when we receive signals from multiple scanners, to have
     as complete heartbeat as possible for a currently learning room
     """
-    print('Warming up the brain... {} seconds'.format(LEARNING_WARMUP_DELAY))
-    await asyncio.sleep(LEARNING_WARMUP_DELAY)
+    print('Warming up the brain... {} seconds'.format(LEARNING_WARMUP_DELAY_SEC))
+    await asyncio.sleep(LEARNING_WARMUP_DELAY_SEC)
     print('Alright! Lets learn!')
 
 
-async def regenerate_heartbeats(device, room, buffer=None):
-    buffer = buffer or HeartbeatsSimilarityBuffer()
-    device_tracker = SimulatedDeviceTracker(device)
-    signals = await DeviceSignal.filter(device_id=device.id, room_id=room.id)\
-        .order_by('created_at').prefetch_related('scanner')
+async def regenerate_heartbeats(device):
+    sessions = await LearningSession.filter(device=device).prefetch_related('room')
 
-    for s in signals:
-        device_tracker.process_signal(
-            scanner_uuid=s.scanner.uuid, signal=normalize_scanner_payload({'rssi': s.rssi}),
-            signal_timestamp=s.created_at)
+    for session in sessions:
+        signals = await DeviceSignal.filter(learning_session=session).prefetch_related('scanner')
+        start_time = min(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
+        end_time = max(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
+        period = HEARTBEAT_COLLECT_PERIOD_SEC
+        tracker = SimulatedDeviceTracker(device=device)
+        last_signal_index = 0
 
-    new_heartbeats = [DeviceHeartbeat(
-        device_id=device.id,
-        room_id=room.id,
-        signals=h.signals,
-    ) for h in device_tracker.heartbeats if buffer.maybe_add_heartbeat(h.signals)]
+        for curr_time in range(int(start_time + period - 1), int(end_time + period), period):
+            for i in range(last_signal_index, len(signals)):
+                signal_ts = signals[i].timestamp()
+                if signal_ts > curr_time - period and signal_ts <= curr_time:
+                    tracker.process_signal(signals[i].scanner.uuid, normalize_scanner_payload({
+                        'uuid': signals[i].scanner.uuid,
+                        'rssi': signals[i].rssi,
+                        'when': signal_ts,
+                    }))
+                else:
+                    last_signal_index = i
+                    break
 
-    await DeviceHeartbeat.filter(device_id=device.id, room_id=room.id).delete()
-    await DeviceHeartbeat.bulk_create(new_heartbeats)
+            tracker.create_heartbeat(timestamp=curr_time)
 
+        new_heartbeats = [DeviceHeartbeat(
+            device_id=device.id,
+            room_id=session.room.id,
+            learning_session_id=session.id,
+            signals=signals,
+        ) for signals in tracker.heartbeats]
 
-class HeartbeatsSimilarityBuffer:
-    def __init__(self, scanners):
-        self.signals = []
-        self.scanners = scanners
-
-    def maybe_add_heartbeat(self, signals):
-        data_row = create_x_data_row(signals, self.scanners)
-
-        if len(self.signals):
-            distances = cdist(self.signals, [data_row], 'euclidean')
-            if any(d < SIGNAL_SIMILARITY_BOUND for d in distances):
-                return False
-
-        self.signals.append(data_row)
-        return True
-
-    async def init_from_device(self, device):
-        heartbeats = await DeviceHeartbeat.filter(device=device)
-        self.signals = [create_x_data_row(h.signals, self.scanners) for h in heartbeats]
+        await DeviceHeartbeat.filter(
+            device_id=device.id, room_id=session.room.id, learning_session_id=session.id).delete()
+        await DeviceHeartbeat.bulk_create(new_heartbeats)
 
 
 class Learn(EventBusSubscriber):
@@ -110,32 +106,28 @@ class Learn(EventBusSubscriber):
         self.recording_room = None
         self.recording_device = None
         self.warmup_coroutine = None
+        self.learning_session = None
 
     @subscribe(StartRecordingSignalsEvent)
     async def handle_start_recording(self, event):
         self.recording_room = event.room
         self.recording_device = event.device
+        self.learning_session = await LearningSession.create(
+            room_id=event.room.id, device_id=event.device.id)
         self.warmup_coroutine = asyncio.create_task(warmup_learning_process())
-
-        _, scanners = await get_rooms_scanners()
-        self.similarity_buffer = HeartbeatsSimilarityBuffer(scanners)
-        await self.similarity_buffer.init_from_device(event.device)
 
     @subscribe(StopRecordingSignalsEvent)
     def handle_stop_recording(self, event):
         self.recording_room = None
         self.recording_device = None
         self.warmup_coroutine = None
-        self.similarity_buffer = None
+        self.learning_session = None
 
     @subscribe(RegenerateHeartbeatsEvent)
     async def handle_regenerate_heartbeats(self, event):
-        rooms, scanners = await get_rooms_scanners()
-        buffer = HeartbeatsSimilarityBuffer(scanners)
-        print('Regenerating heartbeats')
-        for r in rooms:
-            await regenerate_heartbeats(event.device, r, buffer)
-            print('Room {} regenerated'.format(r.name))
+        print('Regenerating heartbeats...')
+        await regenerate_heartbeats(event.device)
+        print('Regenerated!')
 
     def is_learning_started(self, device):
         return (self.warmup_coroutine
@@ -145,9 +137,6 @@ class Learn(EventBusSubscriber):
 
     @subscribe(DeviceSignalEvent)
     async def handle_device_signal(self, event):
-        if not event.signal or not self.is_learning_started(event.device):
-            return
-
         scanner = await Scanner.filter(uuid=event.scanner_uuid).first()
         if not scanner:
             print('There is no scanner in the database with UUID: {}'.format(event.scanner_uuid))
@@ -156,30 +145,31 @@ class Learn(EventBusSubscriber):
         await DeviceSignal.create(
             device_id=event.device.id,
             room_id=self.recording_room.id,
+            learning_session_id=self.learning_session.id,
             scanner_id=scanner.id,
             rssi=event.signal['rssi'],
-            filtered_rssi=event.signal['filtered_rssi'],
+            created_at=event.signal['when'],
+            updated_at=event.signal['when'],
         )
 
-        print('Learned signal from {}, {}, {}'.format(
-            event.scanner_uuid, event.signal['filtered_rssi'], event.signal['rssi']))
+        print('Learned signal from {}, {}'.format(event.scanner_uuid, event.signal['rssi']))
 
     @subscribe(HeartbeatEvent)
     async def handle_device_heartbeat(self, event):
         if not event.signals or not self.is_learning_started(event.device):
             return
 
-        if not self.similarity_buffer.maybe_add_heartbeat(event.signals):
-            print('Skipped similar heartbeat!')
-            return
-
         await DeviceHeartbeat.create(
             device_id=event.device.id,
             room_id=self.recording_room.id,
+            learning_session_id=self.learning_session.id,
             signals=event.signals,
         )
 
-        print('Learned heartbeats: {}'.format(len(self.similarity_buffer.signals)))
+        count = await DeviceHeartbeat.filter(
+            device_id=event.device.id, room_id=self.recording_room.id,).count()
+
+        print('Learned heartbeats: {}'.format(count))
 
     @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):

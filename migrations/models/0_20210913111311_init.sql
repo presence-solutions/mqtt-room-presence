@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS "device" (
     "use_name_as_id" INT NOT NULL  DEFAULT 0,
     "display_name" VARCHAR(100) NOT NULL  DEFAULT '',
     "latest_signal" TIMESTAMP,
-    "current_room_id" INT REFERENCES "room" ("id") ON DELETE CASCADE,
-    "prediction_model_id" INT REFERENCES "predictionmodel" ("id") ON DELETE CASCADE
+    "prediction_model_id" INT REFERENCES "predictionmodel" ("id") ON DELETE CASCADE,
+    "current_room_id" INT REFERENCES "room" ("id") ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "deviceheartbeat" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -49,9 +49,9 @@ CREATE TABLE IF NOT EXISTS "devicesignal" (
     "updated_at" TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     "rssi" REAL NOT NULL  DEFAULT 0,
     "filtered_rssi" REAL NOT NULL  DEFAULT 0,
-    "scanner_id" INT NOT NULL REFERENCES "scanner" ("id") ON DELETE CASCADE,
     "room_id" INT NOT NULL REFERENCES "room" ("id") ON DELETE CASCADE,
-    "device_id" INT NOT NULL REFERENCES "device" ("id") ON DELETE CASCADE
+    "device_id" INT NOT NULL REFERENCES "device" ("id") ON DELETE CASCADE,
+    "scanner_id" INT NOT NULL REFERENCES "scanner" ("id") ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "aerich" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -62,4 +62,8 @@ CREATE TABLE IF NOT EXISTS "aerich" (
 CREATE TABLE IF NOT EXISTS "model_device" (
     "predictionmodel_id" INT NOT NULL REFERENCES "predictionmodel" ("id") ON DELETE CASCADE,
     "device_id" INT NOT NULL REFERENCES "device" ("id") ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "room_scanner" (
+    "room_id" INT NOT NULL REFERENCES "room" ("id") ON DELETE CASCADE,
+    "scanner_id" INT NOT NULL REFERENCES "scanner" ("id") ON DELETE CASCADE
 );

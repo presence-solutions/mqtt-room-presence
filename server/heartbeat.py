@@ -1,4 +1,5 @@
 import asyncio
+
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
     StartRecordingSignalsEvent)
@@ -6,28 +7,11 @@ from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, DEFAULT_TX_POWER, HEARTBEAT_COLLECT_PERIOD_SEC,
-    HEARTBEAT_SIGNAL_WAIT_SEC, KALMAN_R, KALMAN_Q, SILENT_SCANNER_PENALTY)
+    SCANNERS_TOPIC, OFF_ON_DELAY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC)
 
 
 def normalize_uuid(uuid: str):
     return uuid.replace(':', '').lower()
-
-
-def normalize_tx_power(tx_power: str or int):
-    return -abs(int(tx_power))
-
-
-def prepare_heratbeat(signals):
-    final_signals = {}
-
-    for key, value in signals.items():
-        final_signals[key] = {
-            'filtered_rssi': value['filtered_rssi'],
-            'raw_rssi': value['raw_rssi'],
-        }
-
-    return final_signals
 
 
 def normalize_scanner_payload(payload):
@@ -35,107 +19,121 @@ def normalize_scanner_payload(payload):
         'name': payload.get('name', ''),
         'uuid': normalize_uuid(payload.get('uuid', '')),
         'rssi': int(payload.get('rssi', '-100')),
-        'txPower': normalize_tx_power(payload.get('txPower', DEFAULT_TX_POWER)),
+        'when': payload.get('when', datetime.now()),
     }
 
 
-class DeviceTracker:
-    WAIT_FOR_SIGNAL = 1
-    COLLECTING_DATA = 2
+class HeratbeatGenerator:
+    def __init__(self, scanners=None, kalman=None, penalty=None, off_on_delay=None) -> None:
+        scanners = scanners or []
+        self.values = dict(zip(scanners, [-100] * len(scanners)))
+        self.delay = dict(zip(scanners, [0] * len(scanners)))
+        self.last_time = dict(zip(scanners, [0] * len(scanners)))
+        self.appeared = dict(zip(scanners, [False] * len(scanners)))
+        self.penalty = penalty
+        self.off_on_delay = off_on_delay
+        self.filters = {} if kalman else None
+        self.kalman = kalman
 
+    def process(self, signals, time, period):
+        silent_scanners = set(self.values.keys())
+
+        for s in signals:
+            scanner = s['scanner']
+            if self.filters:
+                if scanner not in self.filters:
+                    self.filters[scanner] = KalmanRSSI(R=self.kalman[0], Q=self.kalman[1])
+                self.values[scanner] = self.filters[scanner].filter(s['rssi'])
+            else:
+                self.values[scanner] = s['rssi']
+
+            self.appeared[scanner] = True
+            self.last_time[scanner] = s['when']
+
+            silent_scanners -= set([scanner])
+
+        for scanner, _ in self.delay.items():
+            if self.appeared.get(scanner, False):
+                self.delay[scanner] = time - self.last_time[scanner]
+            else:
+                self.delay[scanner] += period
+
+        if self.penalty is not None and self.penalty > 0:
+            for scanner in silent_scanners:
+                if self.values[scanner] > -100:
+                    self.values[scanner] -= self.penalty
+                    self.values[scanner] = max(self.values[scanner], -100)
+                if self.filters:
+                    self.filters[scanner].filter(self.values[scanner])
+
+        if self.off_on_delay is not None and self.off_on_delay > 0:
+            for scanner in silent_scanners:
+                if self.delay[scanner] >= self.off_on_delay and self.values[scanner] > -100:
+                    self.values[scanner] = -100
+                if self.filters:
+                    self.filters[scanner].filter(self.values[scanner])
+
+        return self.create_heartbeat(signals, time)
+
+    def create_heartbeat(self, signals, time):
+        return dict(self.values)
+
+
+class DeviceTracker:
     def __init__(self, device):
         self.device = device
-        self.state = None
         self.coroutine = None
-        self.latest_signals = {}
-        self.rssi_filters = {}
-        self.beat_counter = 0
-        self.received_scanners = set()
-
-    def stop(self):
-        self.state = None
-        self.latest_signals = {}
-        self.rssi_filters = {}
-        self.beat_counter = 0
-        self.received_scanners = set()
-        if self.coroutine:
-            self.coroutine.cancel()
+        self.reset_generator()
 
     @subscribe(StartRecordingSignalsEvent)
     def handle_start_recording(self, event):
-        self.rssi_filters = {}
+        self.reset_generator()
+
+    def stop(self):
+        if self.coroutine:
+            self.coroutine.cancel()
+            self.coroutine = None
+        self.reset_generator()
 
     def track(self):
-        self.state = DeviceTracker.WAIT_FOR_SIGNAL
-        self.coroutine = asyncio.create_task(self.wait_for_signal())
+        self.coroutine = asyncio.create_task(self.next_cycle())
 
-    def process_signal(self, scanner_uuid, signal, signal_timestamp=None):
-        signal_timestamp = signal_timestamp or datetime.now()
-        self.schedule_send_hearbeat(signal_timestamp)
-
-        signal = self.filter_signal(scanner_uuid, signal, signal_timestamp)
-        self.latest_signals[scanner_uuid] = signal
-        self.received_scanners.add(scanner_uuid)
-
+    def process_signal(self, scanner_uuid, signal):
+        self.collected_signals.append({
+            'scanner': scanner_uuid,
+            'rssi': signal['rssi'],
+            'when': signal['when']
+        })
         self.send_device_signal(scanner_uuid, signal)
 
-    def schedule_send_hearbeat(self, signal_timestamp):
-        if self.state == DeviceTracker.WAIT_FOR_SIGNAL:
-            self.coroutine.cancel()
-            self.beat_counter += 1
-            self.state = DeviceTracker.COLLECTING_DATA
-            self.coroutine = asyncio.create_task(self.send_heartbeat())
+    def reset_generator(self):
+        self.collected_signals = []
+        self.last_heartbeat = None
+        self.gen = HeratbeatGenerator(off_on_delay=OFF_ON_DELAY_SEC)
 
-    def filter_signal(self, scanner_uuid, signal, signal_timestamp):
-        scanner_filter = self.rssi_filters.get(scanner_uuid)
-        filtered_signal = dict(signal)
-        filtered_signal['beat_idx'] = self.beat_counter
-
-        if not scanner_filter:
-            scanner_filter = KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)
-            self.rssi_filters[scanner_uuid] = scanner_filter
-
-        filtered_signal['raw_rssi'] = filtered_signal['rssi']
-        filtered_signal['filtered_rssi'] = scanner_filter.filter(filtered_signal['raw_rssi'])
-        filtered_signal['timestamp'] = signal_timestamp
-
-        return filtered_signal
-
-    async def wait_for_signal(self):
-        await asyncio.sleep(HEARTBEAT_SIGNAL_WAIT_SEC)
-        eventbus.post(HeartbeatEvent(
-            device=self.device, signals=None, timestamp=datetime.now()))
-        self.track()
-
-    async def send_heartbeat(self):
+    async def next_cycle(self):
         await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
-
-        if self.state != DeviceTracker.COLLECTING_DATA:
-            return
-
-        self.penalize_silent_scanners()
-
-        eventbus.post(HeartbeatEvent(
-            device=self.device, signals=prepare_heratbeat(self.latest_signals),
-            timestamp=datetime.now()))
-
+        self.create_heartbeat()
         self.track()
 
-    def penalize_silent_scanners(self):
-        for scanner_uuid, value in self.latest_signals.items():
-            if scanner_uuid in self.received_scanners:
-                continue
+    def create_heartbeat(self, timestamp=None):
+        timestamp = timestamp or datetime.now()
+        signals = self.collected_signals
+        self.collected_signals = []
+        heartbeat = self.gen.process(signals, timestamp, HEARTBEAT_COLLECT_PERIOD_SEC)
 
-            scanner_filter = self.rssi_filters[scanner_uuid]
-            value['rssi'] = value['rssi'] if value['rssi'] <= -100 else value['rssi'] - SILENT_SCANNER_PENALTY
-            value['raw_rssi'] = value['rssi']
-            value['filtered_rssi'] = scanner_filter.filter(value['rssi'])
+        if heartbeat != self.last_heartbeat and len(heartbeat) > 0:
+            self.last_heartbeat = heartbeat
+            final_heartbeat = heartbeat if max(heartbeat.values()) > -100 else None
+            self.send_heartbeat_event(HeartbeatEvent(
+                device=self.device, signals=final_heartbeat, timestamp=timestamp))
 
-        self.received_scanners = set()
+    def send_heartbeat_event(self, event):
+        eventbus.post(event)
 
     def send_device_signal(self, scanner_uuid, signal):
-        print('Processed signal from {} / {}, rssi {} / {}'.format(
-            self.device.name, scanner_uuid, signal['rssi'], signal['filtered_rssi']))
+        print('Processed signal from {} / {}, rssi {}'.format(
+            self.device.name, scanner_uuid, signal['rssi']))
 
         eventbus.post(DeviceSignalEvent(device=self.device, signal=signal, scanner_uuid=scanner_uuid))
 
@@ -144,26 +142,17 @@ class SimulatedDeviceTracker(DeviceTracker):
     def __init__(self, device):
         super().__init__(device)
         self.heartbeats = []
-        self.signal_timestamp = None
 
-    def schedule_send_hearbeat(self, signal_timestamp):
-        if not self.signal_timestamp:
-            self.signal_timestamp = signal_timestamp
-            return
+    def stop(self):
+        super().stop()
+        self.heartbeats = []
 
-        diff_secs = (signal_timestamp - self.signal_timestamp).total_seconds()
-        if diff_secs > HEARTBEAT_COLLECT_PERIOD_SEC:
-            self.signal_timestamp = signal_timestamp
-            self.penalize_silent_scanners()
-            self.heartbeats.append(HeartbeatEvent(
-                device=self.device, signals=prepare_heratbeat(self.latest_signals),
-                timestamp=signal_timestamp))
-
-    async def wait_for_signal(self):
+    def track(self):
         pass
 
-    async def send_heartbeat(self):
-        pass
+    def send_heartbeat_event(self, event):
+        if event.signals is not None:
+            self.heartbeats.append(event.signals)
 
     def send_device_signal(self, scanner_uuid, signal):
         pass

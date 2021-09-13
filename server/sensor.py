@@ -1,7 +1,6 @@
 import asyncio
 from server.constants import DEVICE_CHANGE_STATE_TIMES
 import jsons
-from server.models import Device, Room
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent,
@@ -9,7 +8,8 @@ from server.events import (
 
 
 def get_room_topic(room):
-    return 'homeassistant/binary_sensor/room_{}_occupancy/config'.format(room.id)
+    return 'homeassistant/binary_sensor/room_{}_occupancy/config'.format(room.id)\
+        .replace(' ', '_').lower()
 
 
 def get_room_config_topic(room):
@@ -96,7 +96,9 @@ class RoomTracker(EventBusSubscriber):
         payload = jsons.dumps({
             'name': '{} Room Occupancy'.format(self.room.name),
             'device_class': 'occupancy',
-            'state_topic': get_room_state_topic(self.room)
+            'state_topic': get_room_state_topic(self.room),
+            'unique_id': 'room_occupancy.{}.{}'.format(
+                self.room.id, self.room.name).replace(' ', '_').lower(),
         })
         await client.publish(get_room_config_topic(self.room), payload)
 
@@ -124,10 +126,22 @@ class Sensor(EventBusSubscriber):
         self.room_trackers = {}
         self.device_states = {}
         self.mqtt_client = MQTTClientHolder()
+        self.reconfigure_on_connect = False
 
     async def recompute_state(self):
         update_results = [t.recompute_state(self.device_states) for k, t in self.room_trackers.items()]
         await asyncio.gather(*update_results)
+
+    @subscribe(MQTTConnectedEvent)
+    async def handle_mqtt_connect(self, event):
+        if self.reconfigure_on_connect:
+            for room_id, tracker in self.room_trackers.items():
+                await tracker.configure()
+                await tracker.recompute_state(self.device_states, force_publish=True)
+
+    @subscribe(MQTTDisconnectedEvent)
+    def handle_mqtt_disconnect(self, event):
+        self.reconfigure_on_connect = True
 
     @subscribe(DeviceAddedEvent)
     async def handle_device_added(self, event):
@@ -147,8 +161,11 @@ class Sensor(EventBusSubscriber):
 
     @subscribe(RoomRemovedEvent)
     async def handle_room_removed(self, event):
-        tracker = self.room_trackers[event.room.id]
-        del self.room_trackers[event.room.id]
+        if event.room.id in self.room_trackers:
+            tracker = self.room_trackers[event.room.id]
+            del self.room_trackers[event.room.id]
+        else:
+            tracker = RoomTracker(event.room, self.mqtt_client)
         await tracker.remove()
 
     @subscribe(OccupancyEvent)

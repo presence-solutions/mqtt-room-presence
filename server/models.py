@@ -18,13 +18,20 @@ class TimestampMixin():
     updated_at = fields.DatetimeField(null=True, auto_now=True)
 
 
+class LearningSession(Base, TimestampMixin):
+    device = fields.ForeignKeyField('models.Device', related_name='learning_sessions')
+    room = fields.ForeignKeyField('models.Room', related_name='learning_sessions')
+
+
 class DeviceHeartbeat(Base, TimestampMixin):
+    learning_session = fields.ForeignKeyField('models.LearningSession', related_name='heartbeats', null=True)
     device = fields.ForeignKeyField('models.Device', related_name='heartbeats')
     room = fields.ForeignKeyField('models.Room', related_name='heartbeats')
     signals = fields.JSONField()
 
 
 class DeviceSignal(Base, TimestampMixin):
+    learning_session = fields.ForeignKeyField('models.LearningSession', related_name='signals', null=True)
     device = fields.ForeignKeyField('models.Device', related_name='signals')
     room = fields.ForeignKeyField('models.Room', related_name='signals')
     scanner = fields.ForeignKeyField('models.Scanner', related_name='signals')

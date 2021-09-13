@@ -1,5 +1,5 @@
 from server.eventbus import eventbus
-from server.events import DeviceAddedEvent, RegenerateHeartbeatsEvent, RoomAddedEvent, StartRecordingSignalsEvent, TrainPredictionModelEvent
+from server.events import DeviceAddedEvent, RegenerateHeartbeatsEvent, RoomAddedEvent, RoomRemovedEvent, StartRecordingSignalsEvent, TrainPredictionModelEvent
 from server.heartbeat import Heartbeat
 from server.learn import Learn
 from server.predict import Predict
@@ -18,6 +18,8 @@ class Service:
         rooms = await Room.all()
         for room in rooms:
             eventbus.post(RoomAddedEvent(room=room))
+        # for room in rooms:
+        #     eventbus.post(RoomRemovedEvent(room=room))
 
     async def init_devices(self):
         devices = await Device.all()
@@ -48,17 +50,20 @@ class Service:
         #     scanners = [await Scanner.get(uuid=k) for k in r[1:]]
         #     await room.scanners.add(*scanners)
 
-        # await Device.create(name="Mi Smart Band 4", uuid="cf4ffda76286")
+        # await Device.filter(name="Mi Smart Band 6").delete()
+        # await Device.create(name="Mi Smart Band 6", uuid="ebcd027f9891")
         # await Device.create(name="Artem", uuid="FDA50693A4E24FB1AFCFC6EB07647825".lower())
 
-        device = await Device.get(name='Artem')
+        # device = await Device.get(name='Mi Smart Band 4')
+        # model_device = await Device.get(name='Mi Smart Band 6')
+        # room = await Room.get(name='Office')
 
-        # await DeviceHeartbeat.filter(device_id=device.id).delete()
-        # await DeviceSignal.filter(device_id=device.id).delete()
+        # await DeviceHeartbeat.filter(device=device, room=room).delete()
+        # await DeviceSignal.filter(device=device, room=room).delete()
 
         # eventbus.post(StartRecordingSignalsEvent(
         #     device=device,
-        #     room=await Room.get(name='Bedroom')
+        #     room=room
         # ))
 
         # eventbus.post(RegenerateHeartbeatsEvent(
@@ -69,7 +74,7 @@ class Service:
         #     device=device,
         # ))
 
-        # pred_model = await PredictionModel.filter(devices__id=device.id).order_by('-created_at').first()
+        # pred_model = await PredictionModel.filter(devices__id=model_device.id).order_by('-created_at').first()
         # device.prediction_model = pred_model
         # await device.save()
 
