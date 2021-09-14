@@ -1,15 +1,16 @@
 import asyncio
 import pickle
 import concurrent.futures
+import pandas as pd
 from server.eventbus import eventbus
 from server.models import get_rooms_scanners
-from server.utils import calculate_inputs_hash, create_x_data_row
+from server.utils import calculate_inputs_hash
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, OccupancyEvent
 
 
-def predict_presence(algorithm, data):
-    return algorithm[0], algorithm[1].predict([data])
+def predict_presence(estimator, data):
+    return estimator.predict(data)[0]
 
 
 class Predict(EventBusSubscriber):
@@ -44,24 +45,22 @@ class Predict(EventBusSubscriber):
             return
 
         loop = asyncio.get_running_loop()
-        algorithms, inputs_hash = self.prediction_models[event.device.id]
+        estimator, inputs_hash = self.prediction_models[event.device.id]
         rooms, scanners = await get_rooms_scanners()
         curr_inputs_hash = await calculate_inputs_hash(rooms=rooms, scanners=scanners)
 
         if inputs_hash != curr_inputs_hash:
             return
 
-        used_models = [a[0] for a in sorted(algorithms, key=lambda x: -x[2]) if a[2] > 0.9][:3]
-
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            def run_predict_coroutine(algorithm, data):
-                return loop.run_in_executor(pool, predict_presence, algorithm, data)
+            scanner_uuids = [s.uuid for s in scanners]
+            default_heartbeat = dict(zip(scanner_uuids, [-100] * len(scanner_uuids)))
+            data = pd.DataFrame([{**default_heartbeat, **event.signals}])
+            result = loop.run_in_executor(pool, predict_presence, estimator, data)
 
-            x_data = create_x_data_row(event.signals, scanners)
-            results = [run_predict_coroutine(a, x_data) for a in algorithms if a[0] in used_models]
+        selected_room = (await asyncio.gather(result))[0]
+        result = {selected_room: True}
+        room = next((r for r in rooms if r.id == selected_room), None)
 
-        results = await asyncio.gather(*results)
-        room_occupancy = dict((r[1][0], True) for r in results)
-
-        print('Prediction for {}: {}'.format(event.device.name, results))
-        eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=room_occupancy))
+        print('Prediction for {}: {}'.format(event.device.name, room.name))
+        eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=result))

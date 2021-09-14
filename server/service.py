@@ -54,7 +54,7 @@ class Service:
         # await Device.create(name="Mi Smart Band 6", uuid="ebcd027f9891")
         # await Device.create(name="Artem", uuid="FDA50693A4E24FB1AFCFC6EB07647825".lower())
 
-        # device = await Device.get(name='Mi Smart Band 4')
+        # device = await Device.get(name='Mi Smart Band 6')
         # model_device = await Device.get(name='Mi Smart Band 6')
         # room = await Room.get(name='Office')
 
@@ -71,7 +71,7 @@ class Service:
         # ))
 
         # eventbus.post(TrainPredictionModelEvent(
-        #     device=device,
+        #     device=model_device,
         # ))
 
         # pred_model = await PredictionModel.filter(devices__id=model_device.id).order_by('-created_at').first()

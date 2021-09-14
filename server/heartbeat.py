@@ -19,7 +19,7 @@ def normalize_scanner_payload(payload):
         'name': payload.get('name', ''),
         'uuid': normalize_uuid(payload.get('uuid', '')),
         'rssi': int(payload.get('rssi', '-100')),
-        'when': payload.get('when', datetime.now()),
+        'when': payload.get('when', datetime.now().timestamp()),
     }
 
 
@@ -52,7 +52,7 @@ class HeratbeatGenerator:
 
             silent_scanners -= set([scanner])
 
-        for scanner, _ in self.delay.items():
+        for scanner in self.values.keys():
             if self.appeared.get(scanner, False):
                 self.delay[scanner] = time - self.last_time[scanner]
             else:
@@ -102,7 +102,7 @@ class DeviceTracker:
         self.collected_signals.append({
             'scanner': scanner_uuid,
             'rssi': signal['rssi'],
-            'when': signal['when']
+            'when': float(signal['when'])
         })
         self.send_device_signal(scanner_uuid, signal)
 
@@ -117,10 +117,11 @@ class DeviceTracker:
         self.track()
 
     def create_heartbeat(self, timestamp=None):
-        timestamp = timestamp or datetime.now()
+        timestamp = timestamp or datetime.now().timestamp()
         signals = self.collected_signals
         self.collected_signals = []
-        heartbeat = self.gen.process(signals, timestamp, HEARTBEAT_COLLECT_PERIOD_SEC)
+        heartbeat = self.gen.process(
+            signals, timestamp, HEARTBEAT_COLLECT_PERIOD_SEC)
 
         if heartbeat != self.last_heartbeat and len(heartbeat) > 0:
             self.last_heartbeat = heartbeat

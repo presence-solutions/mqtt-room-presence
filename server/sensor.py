@@ -135,7 +135,7 @@ class Sensor(EventBusSubscriber):
     @subscribe(MQTTConnectedEvent)
     async def handle_mqtt_connect(self, event):
         if self.reconfigure_on_connect:
-            for room_id, tracker in self.room_trackers.items():
+            for _, tracker in self.room_trackers.items():
                 await tracker.configure()
                 await tracker.recompute_state(self.device_states, force_publish=True)
 

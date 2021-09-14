@@ -1,18 +1,16 @@
 import pickle
 import concurrent.futures
 import asyncio
+import pandas as pd
+import numpy as np
 
 from server.heartbeat import SimulatedDeviceTracker, normalize_scanner_payload
 from server.constants import HEARTBEAT_COLLECT_PERIOD_SEC, LEARNING_WARMUP_DELAY_SEC
-from server.utils import calculate_inputs_hash, create_x_data_row
+from server.utils import calculate_inputs_hash
 
-from sklearn.neural_network import MLPClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+from sklearn import metrics
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.multiclass import OneVsRestClassifier
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
@@ -23,33 +21,41 @@ from server.models import (
 
 
 async def prepare_training_data(device):
-    heartbeats = await DeviceHeartbeat.filter(device_id=device.id)
+    heartbeats = await DeviceHeartbeat.filter(device_id=device.id).prefetch_related('room')
     rooms, scanners = await get_rooms_scanners()
     inputs_hash = await calculate_inputs_hash(rooms, scanners)
 
     if set(r.id for r in rooms) != set(h.room_id for h in heartbeats):
         raise Exception('Not every room covered with data')
 
-    X_data = []
-    y_data = []
-    for heartbeat in heartbeats:
-        X_data_row = create_x_data_row(heartbeat.signals, scanners)
-        y_data_row = heartbeat.room_id
-        X_data.append(X_data_row)
-        y_data.append(y_data_row)
+    scanners = [s.uuid for s in scanners]
+    default_heartbeat = dict(zip(scanners, [-100] * len(scanners)))
+    heartbeats_df = pd.DataFrame([{**default_heartbeat, **h.signals, 'room': h.room.id} for h in heartbeats])
+    heartbeats_df.drop_duplicates(inplace=True)
+    heartbeats_target = heartbeats_df.room.values
+    heartbeats_data = heartbeats_df.iloc[:, :-1]
 
-    return X_data, y_data, inputs_hash
+    return heartbeats_data, heartbeats_target, inputs_hash
 
 
-def train_model(name, clf, X, y):
+def weighted_f_score(y_true, y_pred, *, average='micro', verbose=False):
+    scores = np.array(metrics.fbeta_score(y_true, y_pred, beta=10, average=None))
+    if verbose:
+        print(scores)
+    if average is not None:
+        return scores.mean() - 4 * scores.std()
+    return scores
+
+
+def train_model(X, y):
     try:
-        print('learning {}'.format(name))
-        algorithm = clf.fit(X, y)
-        score = clf.score(X, y)
-        print('finished {}'.format(name))
-        return name, algorithm, score, None
+        super_scoring = metrics.make_scorer(weighted_f_score)
+        estimator = OneVsRestClassifier(RandomForestClassifier(n_jobs=-1))
+        estimator.fit(X, y)
+        score = super_scoring(estimator, X, y)
+        return estimator, score, None
     except Exception as e:
-        return name, None, None, e
+        return None, None, e
 
 
 async def warmup_learning_process():
@@ -66,16 +72,17 @@ async def regenerate_heartbeats(device):
     sessions = await LearningSession.filter(device=device).prefetch_related('room')
 
     for session in sessions:
+        to_skip = LEARNING_WARMUP_DELAY_SEC
+        period = HEARTBEAT_COLLECT_PERIOD_SEC
         signals = await DeviceSignal.filter(learning_session=session).prefetch_related('scanner')
         start_time = min(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
         end_time = max(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
-        period = HEARTBEAT_COLLECT_PERIOD_SEC
         tracker = SimulatedDeviceTracker(device=device)
         last_signal_index = 0
 
         for curr_time in range(int(start_time + period - 1), int(end_time + period), period):
             for i in range(last_signal_index, len(signals)):
-                signal_ts = signals[i].timestamp()
+                signal_ts = signals[i].created_at.timestamp()
                 if signal_ts > curr_time - period and signal_ts <= curr_time:
                     tracker.process_signal(signals[i].scanner.uuid, normalize_scanner_payload({
                         'uuid': signals[i].scanner.uuid,
@@ -86,7 +93,10 @@ async def regenerate_heartbeats(device):
                     last_signal_index = i
                     break
 
-            tracker.create_heartbeat(timestamp=curr_time)
+            if to_skip > 0:
+                to_skip -= period
+            else:
+                tracker.create_heartbeat(timestamp=curr_time)
 
         new_heartbeats = [DeviceHeartbeat(
             device_id=device.id,
@@ -129,14 +139,16 @@ class Learn(EventBusSubscriber):
         await regenerate_heartbeats(event.device)
         print('Regenerated!')
 
-    def is_learning_started(self, device):
-        return (self.warmup_coroutine
-                and self.warmup_coroutine.done()
+    def is_learning_started(self, device, warm=True):
+        return ((not warm or (self.warmup_coroutine and self.warmup_coroutine.done()))
                 and self.recording_room
                 and self.recording_device == device)
 
     @subscribe(DeviceSignalEvent)
     async def handle_device_signal(self, event):
+        if not self.is_learning_started(event.device, warm=False):
+            return
+
         scanner = await Scanner.filter(uuid=event.scanner_uuid).first()
         if not scanner:
             print('There is no scanner in the database with UUID: {}'.format(event.scanner_uuid))
@@ -180,37 +192,20 @@ class Learn(EventBusSubscriber):
         X, y, inputs_hash = await prepare_training_data(event.device)
 
         print('Prepared a training set')
-
-        classifiers = {
-            "Nearest Neighbors": KNeighborsClassifier(5),
-            "Linear SVM": SVC(kernel="linear", C=0.025, probability=True),
-            "RBF SVM": SVC(gamma=2, C=1, probability=True),
-            "Decision Tree": DecisionTreeClassifier(max_depth=5),
-            "Random Forest": RandomForestClassifier(
-                max_depth=5, n_estimators=10, max_features=1),
-            "Neural Net": MLPClassifier(alpha=1, max_iter=1000),
-            "AdaBoost": AdaBoostClassifier(),
-            "Naive Bayes": GaussianNB(),
-            "QDA": QuadraticDiscriminantAnalysis()
-        }
-
         print('Run training of the models')
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            def run_train_coroutine(name, clf):
-                return loop.run_in_executor(pool, train_model, name, clf, X, y)
+            train_result = loop.run_in_executor(pool, train_model, X, y)
 
-            train_coros = [run_train_coroutine(name, clf) for name, clf in classifiers.items()]
+        train_result = (await asyncio.gather(train_result))[0]
 
-        results = await asyncio.gather(*train_coros)
-        top_five = sorted(results, key=lambda x: x[2], reverse=True)
-        model = [(data[0], data[1], data[2]) for data in top_five]
-
-        print('Training is done! Results: {}'.format(model))
-
-        result = await PredictionModel.create(
-            accuracy=model[0][2],
-            model=pickle.dumps(model),
-            inputs_hash=inputs_hash,
-        )
-        await result.devices.add(device)
+        if train_result[2] is not None:
+            print('There is an error while fitting the model: ', train_result[2])
+        else:
+            print('Training is done! Results: {}'.format(train_result))
+            result = await PredictionModel.create(
+                accuracy=train_result[1],
+                model=pickle.dumps(train_result[0]),
+                inputs_hash=inputs_hash,
+            )
+            await result.devices.add(device)
