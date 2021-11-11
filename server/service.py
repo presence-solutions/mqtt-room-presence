@@ -9,9 +9,9 @@ from server.models import Device, DeviceHeartbeat, DeviceSignal, PredictionModel
 
 class Service:
     def __init__(self) -> None:
-        self.hearbeat = Heartbeat()
-        self.learn = Learn()
-        self.predict = Predict()
+        # self.hearbeat = Heartbeat()
+        # self.learn = Learn()
+        # self.predict = Predict()
         self.sensor = Sensor()
 
     async def init_rooms(self):

@@ -32,7 +32,7 @@ class HeratbeatGenerator:
         self.appeared = dict(zip(scanners, [False] * len(scanners)))
         self.penalty = penalty
         self.off_on_delay = off_on_delay
-        self.filters = {} if kalman else None
+        self.filters = {} if kalman is not None else None
         self.kalman = kalman
 
     def process(self, signals, time, period):
@@ -40,7 +40,7 @@ class HeratbeatGenerator:
 
         for s in signals:
             scanner = s['scanner']
-            if self.filters:
+            if self.kalman:
                 if scanner not in self.filters:
                     self.filters[scanner] = KalmanRSSI(R=self.kalman[0], Q=self.kalman[1])
                 self.values[scanner] = self.filters[scanner].filter(s['rssi'])
