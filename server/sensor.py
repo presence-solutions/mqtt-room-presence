@@ -1,6 +1,7 @@
 import asyncio
-from server.constants import DEVICE_CHANGE_STATE_TIMES
+from server.constants import DEVICE_CHANGE_STATE_SECONDS
 import jsons
+from datetime import datetime
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent,
@@ -45,37 +46,38 @@ class DeviceState:
     def __init__(self, device):
         self.device = device
         self.in_rooms = {}
-        self.new_rooms = None
+        self.maybe_in_rooms = None
 
     async def update_room(self, room_id, room_state):
-        if self.in_rooms.get(room_id, False) == room_state:
-            self.new_rooms[room_id] = (room_state, 1)
-            return
+        now_timestamp = datetime.now().timestamp()
+        current_maybe_state = self.maybe_in_rooms.get(room_id, {
+            'last_state': room_state,
+            'appeared_at': datetime.now().timestamp(),
+        })
+        self.maybe_in_rooms[room_id] = current_maybe_state
 
-        print('Maybe device {} state in room {} is {}?'.format(self.device.name, room_id, room_state))
+        # The state is not changed for X seconds – make the state as active
+        if all([
+            current_maybe_state['last_state'] == room_state,
+            (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS
+        ]):
+            current_maybe_state['appeared_at'] = now_timestamp
+            self.in_rooms[room_id] = room_state
 
-        maybe_room_state = self.new_rooms.get(room_id, (room_state, 1))
-
-        if maybe_room_state[0] == room_state:
-            maybe_room_state = (room_state, maybe_room_state[1] + 1)
-        else:
-            maybe_room_state = (room_state, 1)
-
-        if maybe_room_state[1] >= DEVICE_CHANGE_STATE_TIMES:
-            maybe_room_state = (maybe_room_state[0], 1)
-            self.in_rooms[room_id] = maybe_room_state[0]
-
-            print('Device {} changed state in room {} to {}'.format(self.device.name, room_id, maybe_room_state[0]))
-
-        self.new_rooms[room_id] = maybe_room_state
+        # State is different, start measuring the state staleness
+        elif current_maybe_state['last_state'] != room_state:
+            self.maybe_in_rooms[room_id] = {
+                'last_state': room_state,
+                'appeared_at': now_timestamp,
+            }
 
     async def update(self, room_occupancy):
-        if self.new_rooms is None:
-            self.new_rooms = {}
-            self.in_rooms = dict(room_occupancy)
+        if self.maybe_in_rooms is None:
+            self.maybe_in_rooms = {}
+            self.in_rooms = {}
         else:
-            merged_occupancy = dict((r, False) for r, v in self.in_rooms.items())
-            merged_occupancy.update(dict((r, False) for r, v in self.new_rooms.items()))
+            merged_occupancy = dict((r, False) for r, _ in self.in_rooms.items())
+            merged_occupancy.update(dict((r, False) for r, _ in self.maybe_in_rooms.items()))
             merged_occupancy.update(room_occupancy)
             results = (self.update_room(r, s) for r, s in merged_occupancy.items())
             await asyncio.gather(*results)

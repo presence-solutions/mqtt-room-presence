@@ -7,7 +7,7 @@ from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, OFF_ON_DELAY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC)
+    SCANNERS_TOPIC, OFF_ON_DELAY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC, KALMAN_R, KALMAN_Q)
 
 
 def normalize_uuid(uuid: str):
@@ -54,24 +54,28 @@ class HeratbeatGenerator:
 
         for scanner in self.values.keys():
             if self.appeared.get(scanner, False):
-                self.delay[scanner] = time - self.last_time[scanner]
+                self.delay[scanner] = time - self.last_time.get(scanner, 0)
             else:
-                self.delay[scanner] += period
+                self.delay[scanner] = self.delay.get(scanner, 0) + period
 
         if self.penalty is not None and self.penalty > 0:
             for scanner in silent_scanners:
-                if self.values[scanner] > -100:
-                    self.values[scanner] -= self.penalty
-                    self.values[scanner] = max(self.values[scanner], -100)
-                if self.filters:
-                    self.filters[scanner].filter(self.values[scanner])
+                penalty_signal = max(self.values.get(scanner, -100) - self.penalty, -100)
+                if self.filters and scanner in self.filters:
+                    self.values[scanner] = self.filters[scanner].filter(penalty_signal)
+                else:
+                    self.values[scanner] = penalty_signal
 
         if self.off_on_delay is not None and self.off_on_delay > 0:
-            for scanner in silent_scanners:
-                if self.delay[scanner] >= self.off_on_delay and self.values[scanner] > -100:
-                    self.values[scanner] = -100
-                if self.filters:
-                    self.filters[scanner].filter(self.values[scanner])
+            for scanner in self.delay:
+                if self.delay[scanner] >= self.off_on_delay:
+                    penalty_signal = -100
+                    self.last_time[scanner] = time
+                    self.delay[scanner] = 0
+                    if self.filters and scanner in self.filters:
+                        self.values[scanner] = self.filters[scanner].filter(penalty_signal)
+                    else:
+                        self.values[scanner] = penalty_signal
 
         return self.create_heartbeat(signals, time)
 
@@ -109,7 +113,7 @@ class DeviceTracker:
     def reset_generator(self):
         self.collected_signals = []
         self.last_heartbeat = None
-        self.gen = HeratbeatGenerator(off_on_delay=OFF_ON_DELAY_SEC)
+        self.gen = HeratbeatGenerator(off_on_delay=OFF_ON_DELAY_SEC, kalman=(KALMAN_R, KALMAN_Q))
 
     async def next_cycle(self):
         await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)

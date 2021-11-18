@@ -3,111 +3,129 @@ import concurrent.futures
 import asyncio
 import pandas as pd
 import numpy as np
+from server.kalman import KalmanRSSI
+from server.constants import KALMAN_Q, KALMAN_R, OFF_ON_DELAY_SEC
 
-from server.heartbeat import SimulatedDeviceTracker, normalize_scanner_payload
-from server.constants import HEARTBEAT_COLLECT_PERIOD_SEC, LEARNING_WARMUP_DELAY_SEC
 from server.utils import calculate_inputs_hash
 
 from sklearn import metrics
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
-    DeviceSignalEvent, HeartbeatEvent, RegenerateHeartbeatsEvent, StartRecordingSignalsEvent,
+    DeviceSignalEvent, StartRecordingSignalsEvent,
     StopRecordingSignalsEvent, TrainPredictionModelEvent)
 from server.models import (
-    DeviceSignal, PredictionModel, DeviceHeartbeat, Scanner, LearningSession, get_rooms_scanners)
+    DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
 
 
-async def prepare_training_data(device):
-    heartbeats = await DeviceHeartbeat.filter(device_id=device.id).prefetch_related('room')
-    rooms, scanners = await get_rooms_scanners()
-    inputs_hash = await calculate_inputs_hash(rooms, scanners)
+def prepare_training_data(signals):
+    used_data_df = pd.DataFrame([{
+        'rssi': x.rssi,
+        'scanner': x.scanner.id,
+        'room': x.room.id,
+        'when': np.datetime64(x.created_at),
+        'position': x.learning_session.id,
+    } for x in signals])
 
-    if set(r.id for r in rooms) != set(h.room_id for h in heartbeats):
-        raise Exception('Not every room covered with data')
+    sorted_rooms = sorted(used_data_df['room'].unique())
+    sorted_scanners = sorted(used_data_df['scanner'].unique())
+    session_dur_df = used_data_df.groupby(['room', 'position'])\
+        .agg(when_min=('when', 'min'), when_max=('when', 'max'), signals=('when', 'count'))
+    session_dur_df['when_diff'] = np.round(
+        (session_dur_df['when_max'] - session_dur_df['when_min']) / np.timedelta64(1, 's'))
+    session_dur_df['frequency'] = session_dur_df['signals'] / session_dur_df['when_diff']
+    filters = dict([(s, KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)) for s in sorted_scanners])
+    signals_history = dict([(s, 0) for s in sorted_scanners])
+    result_data = []
 
-    scanners = [s.uuid for s in scanners]
-    default_heartbeat = dict(zip(scanners, [-100] * len(scanners)))
-    heartbeats_df = pd.DataFrame([{**default_heartbeat, **h.signals, 'room': h.room.id} for h in heartbeats])
-    heartbeats_df.drop_duplicates(inplace=True)
-    heartbeats_target = heartbeats_df.room.values
-    heartbeats_data = heartbeats_df.iloc[:, :-1]
+    for _ in range(10):
+        for room in np.random.choice(sorted_rooms, len(sorted_rooms), replace=False):
+            room_init = False
+            seconds_passed = 0
+            positions = used_data_df[used_data_df['room'] == room]['position'].unique()
+            for _ in range(3):
+                for position in np.random.choice(positions, len(positions), replace=False):
+                    signals_per_sec = session_dur_df.loc[(room, position), 'frequency']
+                    signals = used_data_df[(used_data_df['room'] == room) & (used_data_df['position'] == position)]
+                    signals = signals.sample(min(len(signals), 200))
 
-    return heartbeats_data, heartbeats_target, inputs_hash
+                    for _, row in signals.iterrows():
+                        seconds_passed += 1 / signals_per_sec
+                        signals_history[row['scanner']] = 0
+                        filters[row['scanner']].filter(row['rssi'])
+                        data_row = [filters[s].lastMeasurement() or -100 for s in sorted_scanners]
+
+                        for s in sorted_scanners:
+                            signals_history[s] += 1
+                            if signals_history[s] > (OFF_ON_DELAY_SEC / signals_per_sec):
+                                signals_history[s] = 0
+                                filters[s].filter(-100)
+
+                        if room_init:
+                            result_data.append(data_row + [room])
+                        elif seconds_passed > 120:
+                            room_init = True
+
+    return pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
 
 
-def weighted_f_score(y_true, y_pred, *, average='micro', verbose=False):
-    scores = np.array(metrics.fbeta_score(y_true, y_pred, beta=10, average=None))
-    if verbose:
-        print(scores)
-    if average is not None:
-        return scores.mean() - 4 * scores.std()
-    return scores
+def calculate_best_thresholds(estimator, X, y):
+    pred_probas = estimator.predict_proba(X)
+    sorted_rooms = estimator.classes_
+    pred_probas_df = pd.DataFrame(
+        [dict(list(zip(sorted_rooms, r)) + [('_room', y[i])]) for i, r in enumerate(pred_probas)])
+    room_thresholds = {}
+    beta = 10  # recall is more important than precision
+    scores = []
+
+    for _, room in enumerate(sorted_rooms):
+        y_true = [1 if x else 0 for x in pred_probas_df['_room'] == room]
+        y_pred = list(pred_probas_df[room])
+        precision, recall, thresholds = metrics.precision_recall_curve(y_true, y_pred)
+        beta_squared = beta ** 2
+        fscore = ((1 + beta_squared) * precision * recall) / (beta_squared * precision + recall)
+        ix = np.argmax(fscore)
+        room_thresholds[room] = thresholds[ix]
+        scores.append(fscore[ix])
+        print('%s - Best Threshold=%f, F-Score=%.3f, Precision=%.3f, Recall=%.3f' % (
+            room, thresholds[ix], fscore[ix], precision[ix], recall[ix]))
+
+    return room_thresholds, np.mean(scores)
 
 
-def train_model(X, y):
+def train_model(signals):
+    data_df = prepare_training_data(signals)
+    data_df.drop_duplicates(inplace=True)
+    X, y = (data_df.iloc[:, :-1], data_df.room.values)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42, test_size=0.2)
+    print('Training {}, testing {}'.format(str(len(y_train)), str(len(y_test))))
+
     try:
-        super_scoring = metrics.make_scorer(weighted_f_score)
-        estimator = OneVsRestClassifier(RandomForestClassifier(n_jobs=-1))
-        estimator.fit(X, y)
-        score = super_scoring(estimator, X, y)
-        return estimator, score, None
+        estimator = OneVsRestClassifier(LogisticRegression(
+            penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
+        estimator.fit(X_train, y_train)
     except Exception as e:
-        return None, None, e
+        return 0, None, e
+
+    room_thresholds, accuracy = calculate_best_thresholds(estimator, X_test, y_test)
+    estimator = ThresholdsBasedEstimator(estimator, room_thresholds)
+    return accuracy, estimator, None
 
 
-async def warmup_learning_process():
-    """
-    Wait when we receive signals from multiple scanners, to have
-    as complete heartbeat as possible for a currently learning room
-    """
-    print('Warming up the brain... {} seconds'.format(LEARNING_WARMUP_DELAY_SEC))
-    await asyncio.sleep(LEARNING_WARMUP_DELAY_SEC)
-    print('Alright! Lets learn!')
+class ThresholdsBasedEstimator:
+    def __init__(self, estimator, thresholds) -> None:
+        self.estimator = estimator
+        self.thresholds = thresholds
 
-
-async def regenerate_heartbeats(device):
-    sessions = await LearningSession.filter(device=device).prefetch_related('room')
-
-    for session in sessions:
-        to_skip = LEARNING_WARMUP_DELAY_SEC
-        period = HEARTBEAT_COLLECT_PERIOD_SEC
-        signals = await DeviceSignal.filter(learning_session=session).prefetch_related('scanner')
-        start_time = min(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
-        end_time = max(signals, key=lambda x: x.created_at.timestamp()).created_at.timestamp()
-        tracker = SimulatedDeviceTracker(device=device)
-        last_signal_index = 0
-
-        for curr_time in range(int(start_time + period - 1), int(end_time + period), period):
-            for i in range(last_signal_index, len(signals)):
-                signal_ts = signals[i].created_at.timestamp()
-                if signal_ts > curr_time - period and signal_ts <= curr_time:
-                    tracker.process_signal(signals[i].scanner.uuid, normalize_scanner_payload({
-                        'uuid': signals[i].scanner.uuid,
-                        'rssi': signals[i].rssi,
-                        'when': signal_ts,
-                    }))
-                else:
-                    last_signal_index = i
-                    break
-
-            if to_skip > 0:
-                to_skip -= period
-            else:
-                tracker.create_heartbeat(timestamp=curr_time)
-
-        new_heartbeats = [DeviceHeartbeat(
-            device_id=device.id,
-            room_id=session.room.id,
-            learning_session_id=session.id,
-            signals=signals,
-        ) for signals in tracker.heartbeats]
-
-        await DeviceHeartbeat.filter(
-            device_id=device.id, room_id=session.room.id, learning_session_id=session.id).delete()
-        await DeviceHeartbeat.bulk_create(new_heartbeats)
+    def predict_proba(self, data_row):
+        pred_result = list(zip(self.estimator.classes_, self.estimator.predict_proba(data_row)[0]))
+        max_pred_result = max(pred_result, key=lambda x: x[1])
+        pred_result = [r for r in pred_result if r[1] >= self.thresholds[r[0]]]
+        pred_result = [max_pred_result] if not pred_result else pred_result
+        return [dict(pred_result)]
 
 
 class Learn(EventBusSubscriber):
@@ -115,7 +133,6 @@ class Learn(EventBusSubscriber):
         super().__init__()
         self.recording_room = None
         self.recording_device = None
-        self.warmup_coroutine = None
         self.learning_session = None
 
     @subscribe(StartRecordingSignalsEvent)
@@ -124,29 +141,19 @@ class Learn(EventBusSubscriber):
         self.recording_device = event.device
         self.learning_session = await LearningSession.create(
             room_id=event.room.id, device_id=event.device.id)
-        self.warmup_coroutine = asyncio.create_task(warmup_learning_process())
 
     @subscribe(StopRecordingSignalsEvent)
     def handle_stop_recording(self, event):
         self.recording_room = None
         self.recording_device = None
-        self.warmup_coroutine = None
         self.learning_session = None
 
-    @subscribe(RegenerateHeartbeatsEvent)
-    async def handle_regenerate_heartbeats(self, event):
-        print('Regenerating heartbeats...')
-        await regenerate_heartbeats(event.device)
-        print('Regenerated!')
-
-    def is_learning_started(self, device, warm=True):
-        return ((not warm or (self.warmup_coroutine and self.warmup_coroutine.done()))
-                and self.recording_room
-                and self.recording_device == device)
+    def is_learning_started(self, device):
+        return self.recording_room and self.recording_device == device
 
     @subscribe(DeviceSignalEvent)
     async def handle_device_signal(self, event):
-        if not self.is_learning_started(event.device, warm=False):
+        if not self.is_learning_started(event.device):
             return
 
         scanner = await Scanner.filter(uuid=event.scanner_uuid).first()
@@ -166,46 +173,28 @@ class Learn(EventBusSubscriber):
 
         print('Learned signal from {}, {}'.format(event.scanner_uuid, event.signal['rssi']))
 
-    @subscribe(HeartbeatEvent)
-    async def handle_device_heartbeat(self, event):
-        if not event.signals or not self.is_learning_started(event.device):
-            return
-
-        await DeviceHeartbeat.create(
-            device_id=event.device.id,
-            room_id=self.recording_room.id,
-            learning_session_id=self.learning_session.id,
-            signals=event.signals,
-        )
-
-        count = await DeviceHeartbeat.filter(
-            device_id=event.device.id, room_id=self.recording_room.id,).count()
-
-        print('Learned heartbeats: {}'.format(count))
-
     @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):
-        print('The training started')
-
         device = event.device
         loop = asyncio.get_running_loop()
-        X, y, inputs_hash = await prepare_training_data(event.device)
 
-        print('Prepared a training set')
-        print('Run training of the models')
+        print('Training the model...')
+        rooms, scanners = await get_rooms_scanners()
+        inputs_hash = await calculate_inputs_hash(rooms, scanners)
+        signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            train_result = loop.run_in_executor(pool, train_model, X, y)
+            train_result = loop.run_in_executor(pool, train_model, signals)
 
-        train_result = (await asyncio.gather(train_result))[0]
+        accuracy, model, error = (await asyncio.gather(train_result))[0]
 
-        if train_result[2] is not None:
-            print('There is an error while fitting the model: ', train_result[2])
+        if error is not None:
+            print('There is an error while fitting the model: ', error)
         else:
-            print('Training is done! Results: {}'.format(train_result))
+            print('Training is done! Results: {}, {}, {}'.format(accuracy, model, error))
             result = await PredictionModel.create(
-                accuracy=train_result[1],
-                model=pickle.dumps(train_result[0]),
+                accuracy=accuracy,
+                model=pickle.dumps(model),
                 inputs_hash=inputs_hash,
             )
             await result.devices.add(device)

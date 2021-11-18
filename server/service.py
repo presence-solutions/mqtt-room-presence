@@ -1,17 +1,17 @@
 from server.eventbus import eventbus
-from server.events import DeviceAddedEvent, RegenerateHeartbeatsEvent, RoomAddedEvent, RoomRemovedEvent, StartRecordingSignalsEvent, TrainPredictionModelEvent
+from server.events import DeviceAddedEvent, RoomAddedEvent
 from server.heartbeat import Heartbeat
 from server.learn import Learn
+from server.models import Device, Room
 from server.predict import Predict
 from server.sensor import Sensor
-from server.models import Device, DeviceHeartbeat, DeviceSignal, PredictionModel, Room, Scanner
 
 
 class Service:
     def __init__(self) -> None:
-        # self.hearbeat = Heartbeat()
-        # self.learn = Learn()
-        # self.predict = Predict()
+        self.hearbeat = Heartbeat()
+        self.learn = Learn()
+        self.predict = Predict()
         self.sensor = Sensor()
 
     async def init_rooms(self):
@@ -25,6 +25,8 @@ class Service:
         devices = await Device.all()
         for device in devices:
             eventbus.post(DeviceAddedEvent(device=device))
+
+        # print(DeviceSignal)
 
         # await Scanner.create(uuid="office", name="")
         # await Scanner.create(uuid="kitchen", name="")
@@ -56,6 +58,8 @@ class Service:
 
         # device = await Device.get(name='Mi Smart Band 6')
         # model_device = await Device.get(name='Mi Smart Band 6')
+        # eventbus.post(DeviceAddedEvent(device=model_device))
+        # OLD PRED MODEL: 48
         # room = await Room.get(name='Office')
 
         # await DeviceHeartbeat.filter(device=device, room=room).delete()
@@ -75,12 +79,18 @@ class Service:
         # ))
 
         # pred_model = await PredictionModel.filter(devices__id=model_device.id).order_by('-created_at').first()
-        # device.prediction_model = pred_model
-        # await device.save()
+        # for d in devices:
+        #     d.prediction_model = pred_model
+        #     await d.save()
+        # model_device.prediction_model = pred_model
+        # await model_device.save()
 
-        # print(await DeviceHeartbeat.filter(room_id=(await Room.get(name='Bathroom')).id, id__lt=583).update(room_id=(await Room.get(name='Lobby')).id))
+        # print(await DeviceHeartbeat.filter(
+        #   room_id=(await Room.get(name='Bathroom')).id, id__lt=583).update(room_id=(await Room.get(name='Lobby')).id))
 
-        # print(await DeviceSignal.filter(room_id=(await Room.get(name='Bathroom')).id, id__lt=1781).update(room_id=(await Room.get(name='Lobby')).id))
+        # print(await DeviceSignal.filter(
+        #   room_id=(await Room.get(name='Bathroom')).id,
+        #   id__lt=1781).update(room_id=(await Room.get(name='Lobby')).id))
 
         # print(await DeviceSignal.filter(room_id=(await Room.get(name='Lobby')).id))
 
