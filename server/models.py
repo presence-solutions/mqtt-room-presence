@@ -23,13 +23,6 @@ class LearningSession(Base, TimestampMixin):
     room = fields.ForeignKeyField('models.Room', related_name='learning_sessions')
 
 
-class DeviceHeartbeat(Base, TimestampMixin):
-    learning_session = fields.ForeignKeyField('models.LearningSession', related_name='heartbeats', null=True)
-    device = fields.ForeignKeyField('models.Device', related_name='heartbeats')
-    room = fields.ForeignKeyField('models.Room', related_name='heartbeats')
-    signals = fields.JSONField()
-
-
 class DeviceSignal(Base, TimestampMixin):
     learning_session = fields.ForeignKeyField('models.LearningSession', related_name='signals', null=True)
     device = fields.ForeignKeyField('models.Device', related_name='signals')

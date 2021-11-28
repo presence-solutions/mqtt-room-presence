@@ -4,7 +4,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 from server.kalman import KalmanRSSI
-from server.constants import KALMAN_Q, KALMAN_R, OFF_ON_DELAY_SEC
+from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
 
 from server.utils import calculate_inputs_hash
 
@@ -60,7 +60,7 @@ def prepare_training_data(signals):
 
                         for s in sorted_scanners:
                             signals_history[s] += 1
-                            if signals_history[s] > (OFF_ON_DELAY_SEC / signals_per_sec):
+                            if signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
                                 signals_history[s] = 0
                                 filters[s].filter(-100)
 
@@ -78,7 +78,7 @@ def calculate_best_thresholds(estimator, X, y):
     pred_probas_df = pd.DataFrame(
         [dict(list(zip(sorted_rooms, r)) + [('_room', y[i])]) for i, r in enumerate(pred_probas)])
     room_thresholds = {}
-    beta = 10  # recall is more important than precision
+    beta = 12  # recall is more important than precision
     scores = []
 
     for _, room in enumerate(sorted_rooms):

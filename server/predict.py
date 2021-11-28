@@ -43,7 +43,7 @@ class Predict(EventBusSubscriber):
 
         # No signals provided – the device is out
         if not event.signals:
-            eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=[]))
+            eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy={}))
             return
 
         loop = asyncio.get_running_loop()

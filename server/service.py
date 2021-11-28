@@ -1,8 +1,8 @@
 from server.eventbus import eventbus
-from server.events import DeviceAddedEvent, RoomAddedEvent
+from server.events import DeviceAddedEvent, RoomAddedEvent, TrainPredictionModelEvent
 from server.heartbeat import Heartbeat
 from server.learn import Learn
-from server.models import Device, Room
+from server.models import Device, PredictionModel, Room
 from server.predict import Predict
 from server.sensor import Sensor
 
@@ -62,7 +62,6 @@ class Service:
         # OLD PRED MODEL: 48
         # room = await Room.get(name='Office')
 
-        # await DeviceHeartbeat.filter(device=device, room=room).delete()
         # await DeviceSignal.filter(device=device, room=room).delete()
 
         # eventbus.post(StartRecordingSignalsEvent(
@@ -85,20 +84,11 @@ class Service:
         # model_device.prediction_model = pred_model
         # await model_device.save()
 
-        # print(await DeviceHeartbeat.filter(
-        #   room_id=(await Room.get(name='Bathroom')).id, id__lt=583).update(room_id=(await Room.get(name='Lobby')).id))
-
         # print(await DeviceSignal.filter(
         #   room_id=(await Room.get(name='Bathroom')).id,
         #   id__lt=1781).update(room_id=(await Room.get(name='Lobby')).id))
 
         # print(await DeviceSignal.filter(room_id=(await Room.get(name='Lobby')).id))
-
-        # heartbeats = await DeviceHeartbeat.filter(room_id=(await Room.get(name='Bathroom')).id).order_by('created_at')
-        # for i, h in enumerate(heartbeats):
-        #     # if h.id < 863:
-        #     diff = (heartbeats[i].created_at - heartbeats[i-1].created_at).total_seconds()
-        #     print(i, diff, h.id, heartbeats[i].created_at)
 
 
 async def start_service(app):

@@ -72,7 +72,8 @@ class DeviceState:
             }
 
     async def update(self, room_occupancy):
-        if self.maybe_in_rooms is None:
+        # When the device is not detected in any rooms – clear the state
+        if not room_occupancy or self.maybe_in_rooms is None:
             self.maybe_in_rooms = {}
             self.in_rooms = {}
         else:

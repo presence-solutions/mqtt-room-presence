@@ -7,7 +7,7 @@ from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, OFF_ON_DELAY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC, KALMAN_R, KALMAN_Q)
+    SCANNERS_TOPIC, LONG_DELAY_PENALTY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC, KALMAN_R, KALMAN_Q, TURN_OFF_DEVICE_SEC)
 
 
 def normalize_uuid(uuid: str):
@@ -23,15 +23,28 @@ def normalize_scanner_payload(payload):
     }
 
 
+class UnfilteredRSSI():
+    def __init__(self) -> None:
+        self.x = -100
+
+    def filter(self, x):
+        self.x = x
+        return x
+
+
 class HeratbeatGenerator:
-    def __init__(self, scanners=None, kalman=None, penalty=None, off_on_delay=None) -> None:
+    def __init__(
+        self, scanners=None, kalman=None, silent_scanner_penalty=None, long_delay=None,
+        turn_off_delay=None
+    ) -> None:
         scanners = scanners or []
         self.values = dict(zip(scanners, [-100] * len(scanners)))
-        self.delay = dict(zip(scanners, [0] * len(scanners)))
-        self.last_time = dict(zip(scanners, [0] * len(scanners)))
-        self.appeared = dict(zip(scanners, [False] * len(scanners)))
-        self.penalty = penalty
-        self.off_on_delay = off_on_delay
+        self.last_change = dict(zip(scanners, [0] * len(scanners)))
+        self.last_signal = dict(zip(scanners, [0] * len(scanners)))
+        self.appeared = dict(zip(scanners, [True] * len(scanners)))
+        self.silent_scanner_penalty = silent_scanner_penalty
+        self.turn_off_delay = turn_off_delay
+        self.long_delay = long_delay
         self.filters = {} if kalman is not None else None
         self.kalman = kalman
 
@@ -40,42 +53,35 @@ class HeratbeatGenerator:
 
         for s in signals:
             scanner = s['scanner']
-            if self.kalman:
-                if scanner not in self.filters:
-                    self.filters[scanner] = KalmanRSSI(R=self.kalman[0], Q=self.kalman[1])
-                self.values[scanner] = self.filters[scanner].filter(s['rssi'])
-            else:
-                self.values[scanner] = s['rssi']
-
-            self.appeared[scanner] = True
-            self.last_time[scanner] = s['when']
-
             silent_scanners -= set([scanner])
 
-        for scanner in self.values.keys():
-            if self.appeared.get(scanner, False):
-                self.delay[scanner] = time - self.last_time.get(scanner, 0)
-            else:
-                self.delay[scanner] = self.delay.get(scanner, 0) + period
-
-        if self.penalty is not None and self.penalty > 0:
-            for scanner in silent_scanners:
-                penalty_signal = max(self.values.get(scanner, -100) - self.penalty, -100)
-                if self.filters and scanner in self.filters:
-                    self.values[scanner] = self.filters[scanner].filter(penalty_signal)
+            if scanner not in self.filters:
+                if self.kalman:
+                    self.filters[scanner] = KalmanRSSI(R=self.kalman[0], Q=self.kalman[1])
                 else:
-                    self.values[scanner] = penalty_signal
+                    self.filters[scanner] = UnfilteredRSSI()
 
-        if self.off_on_delay is not None and self.off_on_delay > 0:
-            for scanner in self.delay:
-                if self.delay[scanner] >= self.off_on_delay:
-                    penalty_signal = -100
-                    self.last_time[scanner] = time
-                    self.delay[scanner] = 0
-                    if self.filters and scanner in self.filters:
-                        self.values[scanner] = self.filters[scanner].filter(penalty_signal)
-                    else:
-                        self.values[scanner] = penalty_signal
+            self.values[scanner] = self.filters[scanner].filter(s['rssi'])
+            self.appeared[scanner] = True
+            self.last_change[scanner] = s['when']
+            self.last_signal[scanner] = s['when']
+
+        for scanner in self.values.keys():
+            last_change_delay = time - self.last_change[scanner]
+            last_signal_delay = time - self.last_signal[scanner]
+
+            if self.silent_scanner_penalty is not None and scanner in silent_scanners:
+                penalty_signal = max(self.values.get(scanner, -100) - self.silent_scanner_penalty, -100)
+                self.values[scanner] = self.filters[scanner].filter(penalty_signal)
+                self.last_change[scanner] = time
+
+            if self.turn_off_delay is not None and last_signal_delay >= self.turn_off_delay:
+                self.values[scanner] = -100
+                self.last_change[scanner] = time
+
+            elif self.long_delay is not None and last_change_delay >= self.long_delay:
+                self.values[scanner] = self.filters[scanner].filter(-100)
+                self.last_change[scanner] = time
 
         return self.create_heartbeat(signals, time)
 
@@ -113,7 +119,9 @@ class DeviceTracker:
     def reset_generator(self):
         self.collected_signals = []
         self.last_heartbeat = None
-        self.gen = HeratbeatGenerator(off_on_delay=OFF_ON_DELAY_SEC, kalman=(KALMAN_R, KALMAN_Q))
+        self.gen = HeratbeatGenerator(
+            long_delay=LONG_DELAY_PENALTY_SEC, kalman=(KALMAN_R, KALMAN_Q),
+            turn_off_delay=TURN_OFF_DEVICE_SEC)
 
     async def next_cycle(self):
         await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
@@ -129,7 +137,7 @@ class DeviceTracker:
 
         if heartbeat != self.last_heartbeat and len(heartbeat) > 0:
             self.last_heartbeat = heartbeat
-            final_heartbeat = heartbeat if max(heartbeat.values()) > -100 else None
+            final_heartbeat = heartbeat if max(heartbeat.values()) > -99.0 else None
             self.send_heartbeat_event(HeartbeatEvent(
                 device=self.device, signals=final_heartbeat, timestamp=timestamp))
 
