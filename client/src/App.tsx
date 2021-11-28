@@ -6,9 +6,9 @@ function App() {
   const [currentTime, setCurrentTime] = React.useState(0);
 
   React.useEffect(() => {
-    fetch('/api/time').then(res => res.json()).then(data => {
+    fetch('/api/device').then(res => res.json()).then(data => {
       console.log(data)
-      setCurrentTime(data.time);
+      setCurrentTime(data.length);
     });
   }, []);
 
