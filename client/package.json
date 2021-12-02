@@ -4,7 +4,11 @@
   "private": true,
   "proxy": "http://localhost:5000",
   "dependencies": {
-    "concurrently": "^5.2.0",
+    "@emotion/react": "^11.7.0",
+    "@emotion/styled": "^11.6.0",
+    "@mui/icons-material": "^5.2.0",
+    "@mui/material": "^5.2.2",
+    "@reduxjs/toolkit": "^1.6.2",
     "@testing-library/jest-dom": "^5.11.4",
     "@testing-library/react": "^11.1.0",
     "@testing-library/user-event": "^12.1.10",
@@ -12,8 +16,12 @@
     "@types/node": "^12.0.0",
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0",
+    "concurrently": "^5.2.0",
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
+    "react-intl": "^5.23.0",
+    "react-redux": "^7.2.6",
+    "react-router-dom": "^6.0.2",
     "react-scripts": "4.0.3",
     "typescript": "^4.1.2",
     "web-vitals": "^1.0.1"
@@ -27,7 +35,48 @@
     "extends": [
       "react-app",
       "react-app/jest"
-    ]
+    ],
+    "rules": {
+      "semi": "off",
+      "@typescript-eslint/semi": "warn",
+      "@typescript-eslint/member-delimiter-style": [
+        "warn",
+        {
+          "multiline": {
+            "delimiter": "comma",
+            "requireLast": false
+          },
+          "singleline": {
+            "delimiter": "comma",
+            "requireLast": false
+          },
+          "multilineDetection": "brackets"
+        }
+      ],
+      "@typescript-eslint/no-empty-interface": [
+        "warn",
+        {
+          "allowSingleExtends": true
+        }
+      ],
+      "no-console": "warn",
+      "indent": [
+        "warn",
+        2,
+        {
+          "SwitchCase": 1
+        }
+      ],
+      "quotes": "off",
+      "@typescript-eslint/quotes": [
+        "warn",
+        "single"
+      ],
+      "jsx-quotes": [
+        "warn",
+        "prefer-single"
+      ]
+    }
   },
   "browserslist": {
     "production": [
