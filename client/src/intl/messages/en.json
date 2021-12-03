@@ -1,3 +1,11 @@
 {
+  "HomePage_RoomsLink": "Rooms",
+  "HomePage_DevicesLink": "Devices",
+  "HomePage_ScannersLink": "Scanners",
+  "RoomsPage_Title": "Rooms",
+  "RoomsPage_IdColumn": "Id",
+  "RoomsPage_NameColumn": "Name",
+  "RoomsPage_AddRoomTooltip": "Add room",
+  "RoomsPage_EditRoomTooltip": "Edit room",
   "NotFoundPage_Message": "Page not found."
 }
