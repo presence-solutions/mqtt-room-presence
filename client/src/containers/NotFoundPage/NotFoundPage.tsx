@@ -1,11 +1,11 @@
 import { useFormatMessage } from '../../intl/helpers';
 
 export default function NotFoundPage() {
-  const formatMessage = useFormatMessage();
+  const fm = useFormatMessage();
 
   return (
     <div>
-      {formatMessage('NotFoundPage_Message')}
+      {fm('NotFoundPage_Message')}
     </div>
   );
 }

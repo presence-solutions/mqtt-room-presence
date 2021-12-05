@@ -9,7 +9,7 @@ import { useFormatMessage } from '../../intl/helpers';
 import SideBarLink from '../../components/SideBarLink/SideBarLink';
 
 export default function HomePage() {
-  const formatMessage = useFormatMessage();
+  const fm = useFormatMessage();
 
   return (
     <Grid container columns={16}>
@@ -17,19 +17,16 @@ export default function HomePage() {
         <List component='nav' aria-label='side bar navigation'>
           <SideBarLink
             to='rooms'
-            text={formatMessage('HomePage_RoomsLink')}
-            icon={<BedIcon />}
-          />
+            text={fm('HomePage_RoomsLink')}
+            icon={<BedIcon />} />
           <SideBarLink
             to='devices'
-            text={formatMessage('HomePage_DevicesLink')}
-            icon={<DevicesIcon />}
-          />
+            text={fm('HomePage_DevicesLink')}
+            icon={<DevicesIcon />} />
           <SideBarLink
             to='scanners'
-            text={formatMessage('HomePage_ScannersLink')}
-            icon={<CastConnectedIcon />}
-          />
+            text={fm('HomePage_ScannersLink')}
+            icon={<CastConnectedIcon />} />
         </List>
       </Grid>
 

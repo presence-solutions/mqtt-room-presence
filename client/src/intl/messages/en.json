@@ -7,5 +7,13 @@
   "RoomsPage_NameColumn": "Name",
   "RoomsPage_AddRoomTooltip": "Add room",
   "RoomsPage_EditRoomTooltip": "Edit room",
-  "NotFoundPage_Message": "Page not found."
+  "RoomsModal_AddTitle": "Add room",
+  "RoomsModal_EditTitle": "Edit room",
+  "RoomsModal_NameFieldLabel": "Name",
+  "RoomsModal_NameFieldPlaceholder": "Enter name",
+  "NotFoundPage_Message": "Page not found.",
+  "Validation_Required": "Required field",
+  "Button_Add": "Add",
+  "Button_Save": "Save",
+  "Button_Cancel": "Cancel"
 }
