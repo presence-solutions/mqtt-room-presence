@@ -1,14 +1,14 @@
-"""
-Common Types
-"""
+#
+# Commons
+#
 type ExecutionError {
     code: String
     message: String
 }
 
-"""
-Device
-"""
+#
+# Device
+#
 type Device {
     id: ID!
     name: String
@@ -44,18 +44,22 @@ type DeviceUpdateResult {
     device: Device
 }
 
-"""
-Room
-"""
+#
+# Room
+#
+type Scanner
+
 type Room {
     id: ID!
     name: String
+    scanners: [Scanner!]
     createdAt: Datetime!
     updatedAt: Datetime!
 }
 
 input NewRoomInput {
     name: String!
+    scanners: [ID!]
 }
 
 type RoomCreateResult {
@@ -66,6 +70,7 @@ type RoomCreateResult {
 input UpdateRoomInput {
     id: ID!
     name: String!
+    scanners: [ID!]
 }
 
 type RoomUpdateResult {
@@ -73,13 +78,14 @@ type RoomUpdateResult {
     room: Room
 }
 
-"""
-Scanner
-"""
-type Scanner {
+#
+# Scanner
+#
+extend type Scanner {
     id: ID!
     uuid: String!
     displayName: String
+    usedInRooms: [Room!]
     createdAt: Datetime!
     updatedAt: Datetime!
 }
@@ -87,6 +93,7 @@ type Scanner {
 input NewScannerInput {
     uuid: String!
     displayName: String
+    usedInRooms: [ID!]
 }
 
 type ScannerCreateResult {
@@ -98,6 +105,7 @@ input UpdateScannerInput {
     id: ID!
     uuid: String!
     displayName: String
+    usedInRooms: [ID!]
 }
 
 type ScannerUpdateResult {
@@ -105,6 +113,9 @@ type ScannerUpdateResult {
     scanner: Scanner
 }
 
+#
+# Root
+#
 type Query {
     allDevices: [Device!]!
     allRooms: [Room!]!

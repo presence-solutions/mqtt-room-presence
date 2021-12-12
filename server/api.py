@@ -99,8 +99,14 @@ async def resolve_rooms(_, info):
 @mutation.field("addRoom")
 async def resolve_add_room(_, info, input):
     try:
+        room = await Room.create(name=input['name'])
+
+        await room.scanners.clear()
+        for s in await Scanner.filter(id__in=input.get('scanners', [])):
+            await room.scanners.add(s)
+
         return {
-            "room": await Room.create(name=input['name'])
+            "room": room
         }
     except IntegrityError:
         return {
@@ -115,8 +121,14 @@ async def resolve_add_room(_, info, input):
 async def resolve_update_room(_, info, input):
     try:
         await Room.filter(id=input['id']).update(name=input['name'])
+
+        room = await Room.get(id=input['id'])
+        await room.scanners.clear()
+        for s in await Scanner.filter(id__in=input.get('scanners', [])):
+            await room.scanners.add(s)
+
         return {
-            "room": await Room.get(id=input['id'])
+            "room": room
         }
     except DoesNotExist:
         return {}
@@ -147,12 +159,18 @@ async def resolve_scanner(_, info):
 @mutation.field("addScanner")
 async def resolve_add_scanner(_, info, input):
     try:
+        scanner = await Scanner.create(
+            uuid=input['uuid'],
+            display_name=input.get('displayName', ''),
+            name=''
+        )
+
+        await scanner.used_in_rooms.clear()
+        for r in await Room.filter(id__in=input.get('usedInRooms', [])):
+            await scanner.used_in_rooms.add(r)
+
         return {
-            "scanner": await Scanner.create(
-                uuid=input['uuid'],
-                display_name=input.get('displayName', ''),
-                name=''
-            )
+            "scanner": scanner
         }
     except IntegrityError:
         return {
@@ -170,8 +188,14 @@ async def resolve_update_scanner(_, info, input):
             uuid=input['uuid'],
             display_name=input.get('displayName', ''),
         )
+
+        scanner = await Scanner.get(id=input['id'])
+        await scanner.used_in_rooms.clear()
+        for r in await Room.filter(id__in=input.get('usedInRooms', [])):
+            await scanner.used_in_rooms.add(r)
+
         return {
-            "scanner": await Scanner.get(id=input['id'])
+            "scanner": scanner
         }
     except DoesNotExist:
         return {}
