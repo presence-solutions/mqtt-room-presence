@@ -31,6 +31,19 @@ type DeviceCreateResult {
     device: Device
 }
 
+input UpdateDeviceInput {
+    id: ID!
+    name: String!
+    uuid: String!
+    displayName: String
+    useNameAsId: Boolean
+}
+
+type DeviceUpdateResult {
+    error: ExecutionError
+    device: Device
+}
+
 """
 Room
 """
@@ -50,18 +63,30 @@ type RoomCreateResult {
     room: Room
 }
 
+input UpdateRoomInput {
+    id: ID!
+    name: String!
+}
+
+type RoomUpdateResult {
+    error: ExecutionError
+    room: Room
+}
+
 """
 Scanner
 """
 type Scanner {
     id: ID!
-    uuid: String
+    uuid: String!
+    displayName: String
     createdAt: Datetime!
     updatedAt: Datetime!
 }
 
 input NewScannerInput {
     uuid: String!
+    displayName: String
 }
 
 type ScannerCreateResult {
@@ -69,6 +94,16 @@ type ScannerCreateResult {
     scanner: Scanner
 }
 
+input UpdateScannerInput {
+    id: ID!
+    uuid: String!
+    displayName: String
+}
+
+type ScannerUpdateResult {
+    error: ExecutionError
+    scanner: Scanner
+}
 
 type Query {
     allDevices: [Device!]!
@@ -78,12 +113,15 @@ type Query {
 
 type Mutation {
     addDevice(input: NewDeviceInput!): DeviceCreateResult!
+    updateDevice(input: UpdateDeviceInput!): DeviceUpdateResult!
     removeDevice(id: ID!): Device
 
     addRoom(input: NewRoomInput!): RoomCreateResult!
+    updateRoom(input: UpdateRoomInput!): RoomUpdateResult!
     removeRoom(id: ID!): Room
 
     addScanner(input: NewScannerInput!): ScannerCreateResult!
+    updateScanner(input: UpdateScannerInput!): ScannerUpdateResult!
     removeScanner(id: ID!): Scanner
 }
 

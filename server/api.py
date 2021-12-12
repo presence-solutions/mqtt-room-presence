@@ -58,6 +58,29 @@ async def resolve_add_device(_, info, input):
         }
 
 
+@mutation.field("updateDevice")
+async def resolve_update_device(_, info, input):
+    try:
+        await Device.filter(id=input['id']).update(
+            name=input['name'],
+            uuid=input['uuid'],
+            display_name=input.get('displayName', ''),
+            use_name_as_id=input.get('useNameAsId', False),
+        )
+        return {
+            "device": await Device.get(id=input['id'])
+        }
+    except DoesNotExist:
+        return {}
+    except IntegrityError:
+        return {
+            "error": {
+                "code": "integrity_error",
+                "message": "A device with the same name or UUID already exists"
+            }
+        }
+
+
 @mutation.field("removeDevice")
 async def resolve_remove_device(_, info, id):
     try:
@@ -88,6 +111,24 @@ async def resolve_add_room(_, info, input):
         }
 
 
+@mutation.field("updateRoom")
+async def resolve_update_room(_, info, input):
+    try:
+        await Room.filter(id=input['id']).update(name=input['name'])
+        return {
+            "room": await Room.get(id=input['id'])
+        }
+    except DoesNotExist:
+        return {}
+    except IntegrityError:
+        return {
+            "error": {
+                "code": "integrity_error",
+                "message": "A room with the same name already exists"
+            }
+        }
+
+
 @mutation.field("removeRoom")
 async def resolve_remove_room(_, info, id):
     try:
@@ -107,8 +148,33 @@ async def resolve_scanner(_, info):
 async def resolve_add_scanner(_, info, input):
     try:
         return {
-            "scanner": await Scanner.create(uuid=input['uuid'], name='')
+            "scanner": await Scanner.create(
+                uuid=input['uuid'],
+                display_name=input.get('displayName', ''),
+                name=''
+            )
         }
+    except IntegrityError:
+        return {
+            "error": {
+                "code": "integrity_error",
+                "message": "A scanner with the same UUID already exists"
+            }
+        }
+
+
+@mutation.field("updateScanner")
+async def resolve_update_scanner(_, info, input):
+    try:
+        await Scanner.filter(id=input['id']).update(
+            uuid=input['uuid'],
+            display_name=input.get('displayName', ''),
+        )
+        return {
+            "scanner": await Scanner.get(id=input['id'])
+        }
+    except DoesNotExist:
+        return {}
     except IntegrityError:
         return {
             "error": {
