@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS "device" (
     "display_name" VARCHAR(100) NOT NULL  DEFAULT '',
     "latest_signal" TIMESTAMP,
     "prediction_model_id" INT REFERENCES "predictionmodel" ("id") ON DELETE CASCADE,
-    "current_room_id" INT REFERENCES "room" ("id") ON DELETE CASCADE
+    "current_room_id" INT REFERENCES "room" ("id") ON DELETE CASCADE,
+    CONSTRAINT "device_name_unique" UNIQUE ("name")
+    CONSTRAINT "device_uuid_unique" UNIQUE ("uuid")
+
 );
 CREATE TABLE IF NOT EXISTS "deviceheartbeat" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

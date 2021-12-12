@@ -1,0 +1,37 @@
+type Device {
+    id: ID!
+    name: String
+    uuid: String
+    displayName: String
+    useNameAsId: Boolean!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+type ExecutionError {
+    code: String
+    message: String
+}
+
+input NewDeviceInput {
+    name: String!
+    uuid: String!
+    displayName: String
+    useNameAsId: Boolean
+}
+
+type DeviceCreateResult {
+    error: ExecutionError
+    device: Device
+}
+
+type Query {
+    allDevices: [Device!]!
+}
+
+type Mutation {
+    addDevice(input: NewDeviceInput!): DeviceCreateResult!
+    removeDevice(id: ID!): Device
+}
+
+scalar Datetime

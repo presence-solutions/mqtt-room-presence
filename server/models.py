@@ -1,3 +1,4 @@
+from server import config
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, RoomAddedEvent, RoomRemovedEvent
 from server.eventbus import eventbus
 from tortoise.signals import Signals, post_delete, post_save
@@ -33,13 +34,14 @@ class DeviceSignal(Base, TimestampMixin):
 
 
 class Device(Base, TimestampMixin):
-    name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100)
+    name = fields.CharField(max_length=100, unique=True)
+    uuid = fields.CharField(max_length=100, unique=True)
     use_name_as_id = fields.BooleanField(default=False)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
     current_room = fields.ForeignKeyField('models.Room', related_name='devices', null=True)
     prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='used_by_devices', null=True)
+
 
     @property
     def identifier(self):
@@ -48,17 +50,15 @@ class Device(Base, TimestampMixin):
 
 
 class Room(Base, TimestampMixin):
-    name = fields.CharField(max_length=100)
+    name = fields.CharField(max_length=100, unique=True)
     scanners = fields.ManyToManyField(
         'models.Scanner', related_name='used_in_rooms', through='room_scanner')
 
     class Meta:
         ordering = ["id"]
 
-
 class Scanner(Base, TimestampMixin):
-    name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100, default='')
+    uuid = fields.CharField(max_length=100, unique=True)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
 
@@ -112,10 +112,10 @@ async def emit_room_removed(sender, instance, using_db):
     eventbus.post(RoomRemovedEvent(room=instance))
 
 
-async def init_db(app):
-    await Tortoise.init(app['config'].TORTOISE_ORM)
+async def init_db():
+    await Tortoise.init(config.TORTOISE_ORM)
     await Tortoise.generate_schemas()
 
 
-async def close_db(app):
+async def close_db():
     await Tortoise.close_connections()
