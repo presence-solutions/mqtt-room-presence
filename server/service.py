@@ -9,10 +9,11 @@ from server.sensor import Sensor
 
 class Service:
     def __init__(self) -> None:
-        self.hearbeat = Heartbeat()
-        self.learn = Learn()
-        self.predict = Predict()
-        self.sensor = Sensor()
+        pass
+        # self.hearbeat = Heartbeat()
+        # self.learn = Learn()
+        # self.predict = Predict()
+        # self.sensor = Sensor()
 
     async def init_rooms(self):
         rooms = await Room.all()
@@ -91,8 +92,7 @@ class Service:
         # print(await DeviceSignal.filter(room_id=(await Room.get(name='Lobby')).id))
 
 
-async def start_service(app):
+async def start_service():
     service = Service()
-    app['service'] = service
     await service.init_devices()
     await service.init_rooms()

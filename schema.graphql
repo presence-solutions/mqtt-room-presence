@@ -1,0 +1,90 @@
+"""
+Common Types
+"""
+type ExecutionError {
+    code: String
+    message: String
+}
+
+"""
+Device
+"""
+type Device {
+    id: ID!
+    name: String
+    uuid: String
+    displayName: String
+    useNameAsId: Boolean!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+input NewDeviceInput {
+    name: String!
+    uuid: String!
+    displayName: String
+    useNameAsId: Boolean
+}
+
+type DeviceCreateResult {
+    error: ExecutionError
+    device: Device
+}
+
+"""
+Room
+"""
+type Room {
+    id: ID!
+    name: String
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+input NewRoomInput {
+    name: String!
+}
+
+type RoomCreateResult {
+    error: ExecutionError
+    room: Room
+}
+
+"""
+Scanner
+"""
+type Scanner {
+    id: ID!
+    uuid: String
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+input NewScannerInput {
+    uuid: String!
+}
+
+type ScannerCreateResult {
+    error: ExecutionError
+    scanner: Scanner
+}
+
+
+type Query {
+    allDevices: [Device!]!
+    allRooms: [Room!]!
+    allScanners: [Scanner!]!
+}
+
+type Mutation {
+    addDevice(input: NewDeviceInput!): DeviceCreateResult!
+    removeDevice(id: ID!): Device
+
+    addRoom(input: NewRoomInput!): RoomCreateResult!
+    removeRoom(id: ID!): Room
+
+    addScanner(input: NewScannerInput!): ScannerCreateResult!
+    removeScanner(id: ID!): Scanner
+}
+
+scalar Datetime

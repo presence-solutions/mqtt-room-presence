@@ -1,4 +1,4 @@
-from aiohttp import web
+import uvicorn
 from server.server import app
 
-web.run_app(app, port=5000)
+uvicorn.run(app, host='0.0.0.0', port=5000)
