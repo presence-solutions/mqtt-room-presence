@@ -1,6 +1,6 @@
 import dateutil
-from tortoise.exceptions import DoesNotExist
-from server.models import Device
+from tortoise.exceptions import DoesNotExist, IntegrityError
+from server.models import Device, Room, Scanner
 from ariadne import (
     ObjectType, ScalarType, MutationType, make_executable_schema, load_schema_from_path,
     snake_case_fallback_resolvers)
@@ -10,6 +10,8 @@ type_defs = load_schema_from_path('schema.graphql')
 datetime_scalar = ScalarType("Datetime")
 query = ObjectType("Query")
 device = ObjectType("Device")
+room = ObjectType("Room")
+scanner = ObjectType("Scanner")
 mutation = MutationType()
 
 
@@ -47,12 +49,11 @@ async def resolve_add_device(_, info, input):
                 use_name_as_id=input.get('useNameAsId', False),
             )
         }
-    except Exception:
-        # TODO: handle creation errors
+    except IntegrityError:
         return {
             "error": {
-                "code": "unexpected_exception",
-                "message": "Unxepected exception"
+                "code": "integrity_error",
+                "message": "A device with the same name or UUID already exists"
             }
         }
 
@@ -67,5 +68,70 @@ async def resolve_remove_device(_, info, id):
         return None
 
 
-resolvers = [query, mutation, device, snake_case_fallback_resolvers]
+@query.field("allRooms")
+async def resolve_rooms(_, info):
+    return await Room.all().order_by('-created_at')
+
+
+@mutation.field("addRoom")
+async def resolve_add_room(_, info, input):
+    try:
+        return {
+            "room": await Room.create(name=input['name'])
+        }
+    except IntegrityError:
+        return {
+            "error": {
+                "code": "integrity_error",
+                "message": "A room with the same name already exists"
+            }
+        }
+
+
+@mutation.field("removeRoom")
+async def resolve_remove_room(_, info, id):
+    try:
+        room = await Room.get(id=id)
+        await room.delete()
+        return room
+    except DoesNotExist:
+        return None
+
+
+@query.field("allScanners")
+async def resolve_scanner(_, info):
+    return await Scanner.all().order_by('-created_at')
+
+
+@mutation.field("addScanner")
+async def resolve_add_scanner(_, info, input):
+    try:
+        return {
+            "scanner": await Scanner.create(uuid=input['uuid'], name='')
+        }
+    except IntegrityError:
+        return {
+            "error": {
+                "code": "integrity_error",
+                "message": "A scanner with the same UUID already exists"
+            }
+        }
+
+
+@mutation.field("removeScanner")
+async def resolve_remove_scanner(_, info, id):
+    try:
+        scanner = await Scanner.get(id=id)
+        await scanner.delete()
+        return scanner
+    except DoesNotExist:
+        return None
+
+
+resolvers = [
+    datetime_scalar,
+    device, room, scanner,
+    query, mutation,
+    snake_case_fallback_resolvers
+]
 schema = make_executable_schema(type_defs, resolvers)

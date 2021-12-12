@@ -42,7 +42,6 @@ class Device(Base, TimestampMixin):
     current_room = fields.ForeignKeyField('models.Room', related_name='devices', null=True)
     prediction_model = fields.ForeignKeyField('models.PredictionModel', related_name='used_by_devices', null=True)
 
-
     @property
     def identifier(self):
         identifier = self.name if self.use_name_as_id else self.uuid
@@ -57,7 +56,9 @@ class Room(Base, TimestampMixin):
     class Meta:
         ordering = ["id"]
 
+
 class Scanner(Base, TimestampMixin):
+    name = fields.CharField(max_length=100, unique=True)
     uuid = fields.CharField(max_length=100, unique=True)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
@@ -82,7 +83,7 @@ async def get_rooms_scanners():
     return rooms, scanners
 
 
-async def clear_rooms_scanners_cache(sender, instance, created, using_db, update_fields):
+async def clear_rooms_scanners_cache(sender, instance, created, using_db=None, update_fields=None):
     get_rooms_scanners.cache_clear()
 
 
