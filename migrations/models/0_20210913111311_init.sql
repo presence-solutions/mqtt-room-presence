@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS "room" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     "created_at" TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    "name" VARCHAR(100) NOT NULL
+    "name" VARCHAR(100) NOT NULL,
+    CONSTRAINT "room_name_unique" UNIQUE ("name")
 );
 CREATE TABLE IF NOT EXISTS "device" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -25,7 +26,7 @@ CREATE TABLE IF NOT EXISTS "device" (
     "latest_signal" TIMESTAMP,
     "prediction_model_id" INT REFERENCES "predictionmodel" ("id") ON DELETE CASCADE,
     "current_room_id" INT REFERENCES "room" ("id") ON DELETE CASCADE,
-    CONSTRAINT "device_name_unique" UNIQUE ("name")
+    CONSTRAINT "device_name_unique" UNIQUE ("name"),
     CONSTRAINT "device_uuid_unique" UNIQUE ("uuid")
 
 );
@@ -44,7 +45,8 @@ CREATE TABLE IF NOT EXISTS "scanner" (
     "name" VARCHAR(100) NOT NULL,
     "uuid" VARCHAR(100) NOT NULL  DEFAULT '',
     "display_name" VARCHAR(100) NOT NULL  DEFAULT '',
-    "latest_signal" TIMESTAMP
+    "latest_signal" TIMESTAMP,
+    CONSTRAINT "scanner_uuid_unique" UNIQUE ("uuid")
 );
 CREATE TABLE IF NOT EXISTS "devicesignal" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
