@@ -34,7 +34,7 @@ class DeviceSignal(Base, TimestampMixin):
 
 
 class Device(Base, TimestampMixin):
-    name = fields.CharField(max_length=100, unique=True)
+    name = fields.CharField(max_length=100)
     uuid = fields.CharField(max_length=100, unique=True)
     use_name_as_id = fields.BooleanField(default=False)
     display_name = fields.CharField(max_length=100, default='')
@@ -58,7 +58,7 @@ class Room(Base, TimestampMixin):
 
 
 class Scanner(Base, TimestampMixin):
-    name = fields.CharField(max_length=100, unique=True)
+    name = fields.CharField(max_length=100)
     uuid = fields.CharField(max_length=100, unique=True)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
