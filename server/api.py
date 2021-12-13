@@ -1,17 +1,19 @@
+from datetime import datetime
 import dateutil
 from tortoise.exceptions import DoesNotExist, IntegrityError
-from server.models import Device, Room, Scanner
+from server.eventbus import eventbus
+from server.events import DeviceSignalEvent, LearntDeviceSignalEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent
+from server.models import Device, DeviceSignal, Room, Scanner
 from ariadne import (
-    ObjectType, ScalarType, MutationType, make_executable_schema, load_schema_from_path,
+    ObjectType, ScalarType, MutationType, SubscriptionType,
+    make_executable_schema, load_schema_from_path,
     snake_case_fallback_resolvers)
 
 type_defs = load_schema_from_path('schema.graphql')
 
 datetime_scalar = ScalarType("Datetime")
 query = ObjectType("Query")
-device = ObjectType("Device")
-room = ObjectType("Room")
-scanner = ObjectType("Scanner")
+subscription = SubscriptionType()
 mutation = MutationType()
 
 
@@ -218,10 +220,70 @@ async def resolve_remove_scanner(_, info, id):
         return None
 
 
+@mutation.field("startSignalsRecording")
+async def resolve_start_signals_recording(_, info, room, device):
+    try:
+        eventbus.post(StartRecordingSignalsEvent(
+            device=await Device.get(id=device),
+            room=await Room.get(id=room)
+        ))
+        return {}
+    except DoesNotExist:
+        return {
+            "error": {
+                "code": "does_not_exist",
+                "message": "Given room or device does not exist"
+            }
+        }
+
+
+@mutation.field("stopSignalsRecording")
+async def resolve_stop_signals_recording(_, info):
+    eventbus.post(StopRecordingSignalsEvent())
+    return {}
+
+
+@subscription.source("deviceSignal")
+async def source_device_signal(_, info, device=None, scanner=None):
+    async with eventbus.subscribe(DeviceSignalEvent) as subscriber:
+        async for event in subscriber:
+            try:
+                scanner_obj = await Scanner.get(uuid=event.scanner_uuid)
+            except DoesNotExist:
+                scanner_obj = Scanner(uuid=event.scanner_uuid, unknown=True)
+
+            if all([
+                not device or event.device.id == int(device),
+                not scanner or scanner_obj.id == int(scanner)
+            ]):
+                signal_datetime = datetime.fromtimestamp(event.signal['when'])
+                yield DeviceSignal(
+                    room=None,
+                    learning_session=None,
+                    device=event.device,
+                    scanner=scanner_obj,
+                    rssi=int(event.signal['rssi']),
+                    created_at=signal_datetime,
+                    updated_at=signal_datetime,
+                )
+
+
+@subscription.source("learntSignal")
+async def resolve_learnt_signal_sub(_, info):
+    async with eventbus.subscribe(LearntDeviceSignalEvent) as subscriber:
+        async for event in subscriber:
+            yield event.device_signal
+
+
+@subscription.field("learntSignal")
+@subscription.field("deviceSignal")
+def resolve_subscription_device_signal(signal, info, **kwargs):
+    return signal
+
+
 resolvers = [
     datetime_scalar,
-    device, room, scanner,
-    query, mutation,
+    query, mutation, subscription,
     snake_case_fallback_resolvers
 ]
 schema = make_executable_schema(type_defs, resolvers)

@@ -82,12 +82,13 @@ type RoomUpdateResult {
 # Scanner
 #
 extend type Scanner {
-    id: ID!
+    id: ID
     uuid: String!
     displayName: String
     usedInRooms: [Room!]
-    createdAt: Datetime!
-    updatedAt: Datetime!
+    createdAt: Datetime
+    updatedAt: Datetime
+    unknown: Boolean
 }
 
 input NewScannerInput {
@@ -114,6 +115,33 @@ type ScannerUpdateResult {
 }
 
 #
+# Signals recording
+#
+type LearningSession {
+    id: ID!
+}
+
+type StartSignalsRecordingResult {
+    error: ExecutionError
+}
+
+type StopSignalsRecordingResult {
+    error: ExecutionError
+    recording: LearningSession
+}
+
+type DeviceSignal {
+    id: ID
+    learningSession: LearningSession
+    room: Room
+    device: Device!
+    scanner: Scanner!
+    rssi: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+#
 # Root
 #
 type Query {
@@ -134,6 +162,17 @@ type Mutation {
     addScanner(input: NewScannerInput!): ScannerCreateResult!
     updateScanner(input: UpdateScannerInput!): ScannerUpdateResult!
     removeScanner(id: ID!): Scanner
+
+    startSignalsRecording(room: ID!, device: ID!): StartSignalsRecordingResult!
+    stopSignalsRecording: StopSignalsRecordingResult
 }
 
+type Subscription {
+    deviceSignal(device: ID, scanner: ID): DeviceSignal!
+    learntSignal: DeviceSignal!
+}
+
+#
+# Scalars
+#
 scalar Datetime

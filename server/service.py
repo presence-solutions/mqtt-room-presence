@@ -9,9 +9,8 @@ from server.sensor import Sensor
 
 class Service:
     def __init__(self) -> None:
-        pass
-        # self.hearbeat = Heartbeat()
-        # self.learn = Learn()
+        self.hearbeat = Heartbeat()
+        self.learn = Learn()
         # self.predict = Predict()
         # self.sensor = Sensor()
 

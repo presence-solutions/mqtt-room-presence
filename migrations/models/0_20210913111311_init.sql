@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS "devicesignal" (
     "created_at" TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     "rssi" REAL NOT NULL  DEFAULT 0,
-    "filtered_rssi" REAL NOT NULL  DEFAULT 0,
     "room_id" INT NOT NULL REFERENCES "room" ("id") ON DELETE CASCADE,
     "device_id" INT NOT NULL REFERENCES "device" ("id") ON DELETE CASCADE,
     "scanner_id" INT NOT NULL REFERENCES "scanner" ("id") ON DELETE CASCADE

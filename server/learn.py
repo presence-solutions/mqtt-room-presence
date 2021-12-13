@@ -1,8 +1,10 @@
+from datetime import datetime
 import pickle
 import concurrent.futures
 import asyncio
 import pandas as pd
 import numpy as np
+from server.eventbus import eventbus
 from server.kalman import KalmanRSSI
 from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
 
@@ -15,7 +17,7 @@ from sklearn.model_selection import train_test_split
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
-    DeviceSignalEvent, StartRecordingSignalsEvent,
+    DeviceRemovedEvent, DeviceSignalEvent, LearntDeviceSignalEvent, RoomRemovedEvent, StartRecordingSignalsEvent,
     StopRecordingSignalsEvent, TrainPredictionModelEvent)
 from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
@@ -148,6 +150,18 @@ class Learn(EventBusSubscriber):
         self.recording_device = None
         self.learning_session = None
 
+    @subscribe(DeviceRemovedEvent)
+    def handle_device_removed(self, event):
+        if event.device == self.recording_device:
+            self.handle_stop_recording(None)
+            eventbus.post(StopRecordingSignalsEvent())
+
+    @subscribe(RoomRemovedEvent)
+    def handle_room_removed(self, event):
+        if event.room == self.recording_room:
+            self.handle_stop_recording(None)
+            eventbus.post(StopRecordingSignalsEvent())
+
     def is_learning_started(self, device):
         return self.recording_room and self.recording_device == device
 
@@ -161,15 +175,18 @@ class Learn(EventBusSubscriber):
             print('There is no scanner in the database with UUID: {}'.format(event.scanner_uuid))
             return
 
-        await DeviceSignal.create(
-            device_id=event.device.id,
-            room_id=self.recording_room.id,
-            learning_session_id=self.learning_session.id,
-            scanner_id=scanner.id,
+        signal_datetime = datetime.fromtimestamp(event.signal['when'])
+        device_signal = await DeviceSignal.create(
+            device=event.device,
+            room=self.recording_room,
+            learning_session=self.learning_session,
+            scanner=scanner,
             rssi=event.signal['rssi'],
-            created_at=event.signal['when'],
-            updated_at=event.signal['when'],
+            created_at=signal_datetime,
+            updated_at=signal_datetime,
         )
+
+        eventbus.post(LearntDeviceSignalEvent(device_signal=device_signal))
 
         print('Learned signal from {}, {}'.format(event.scanner_uuid, event.signal['rssi']))
 

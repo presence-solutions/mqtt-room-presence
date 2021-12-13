@@ -30,7 +30,6 @@ class DeviceSignal(Base, TimestampMixin):
     room = fields.ForeignKeyField('models.Room', related_name='signals')
     scanner = fields.ForeignKeyField('models.Scanner', related_name='signals')
     rssi = fields.FloatField(default=0)
-    filtered_rssi = fields.FloatField(default=0)
 
 
 class Device(Base, TimestampMixin):
@@ -59,9 +58,10 @@ class Room(Base, TimestampMixin):
 
 class Scanner(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100, unique=True)
+    uuid = fields.CharField(max_length=100, default='', unique=True)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
+    unknown = fields.BooleanField(default=False)
 
     class Meta:
         ordering = ["id"]
