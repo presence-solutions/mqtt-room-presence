@@ -89,13 +89,6 @@ class StopRecordingSignalsEvent():
     pass
 
 
-class RegenerateHeartbeatsEvent(namedtuple(
-    'RegenerateHeartbeatsEvent',
-    'device'
-)):
-    pass
-
-
 class TrainPredictionModelEvent(namedtuple(
     'TrainPredictionModel',
     'device'
@@ -105,6 +98,6 @@ class TrainPredictionModelEvent(namedtuple(
 
 class TrainingProgressEvent(namedtuple(
     'TrainingProgressEvent',
-    'device, message, is_error, is_final'
+    'device, status_code, message, prediction_model, is_error, is_final'
 )):
     pass

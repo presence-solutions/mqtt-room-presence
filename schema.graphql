@@ -15,6 +15,8 @@ type Device {
     uuid: String
     displayName: String
     useNameAsId: Boolean!
+    predictionModel: PredictionModel
+    usedByModels: [PredictionModel!]
     createdAt: Datetime!
     updatedAt: Datetime!
 }
@@ -24,6 +26,7 @@ input NewDeviceInput {
     uuid: String!
     displayName: String
     useNameAsId: Boolean
+    predictionModel: ID
 }
 
 type DeviceCreateResult {
@@ -37,6 +40,7 @@ input UpdateDeviceInput {
     uuid: String!
     displayName: String
     useNameAsId: Boolean
+    predictionModel: ID
 }
 
 type DeviceUpdateResult {
@@ -142,12 +146,46 @@ type DeviceSignal {
 }
 
 #
+# Model training
+#
+type PredictionModel {
+    id: ID!
+    displayName: String
+    inputsHash: String!
+    accuracy: Float
+    devices: [Device!]
+    usedByDevices: [Device!]
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+type ModelTrainingProgress {
+    device: Device!
+    statusCode: String!
+    message: String!
+    predictionModel: PredictionModel
+    isError: Boolean
+    isFinal: Boolean
+}
+
+type ModelTrainingProgressResult {
+    error: ExecutionError
+    progress: ModelTrainingProgress
+}
+
+#
+# Scalars
+#
+scalar Datetime
+
+#
 # Root
 #
 type Query {
     allDevices: [Device!]!
     allRooms: [Room!]!
     allScanners: [Scanner!]!
+    allPredictionModels: [PredictionModel!]!
 }
 
 type Mutation {
@@ -165,14 +203,13 @@ type Mutation {
 
     startSignalsRecording(room: ID!, device: ID!): StartSignalsRecordingResult!
     stopSignalsRecording: StopSignalsRecordingResult
+
+    removePredictionModel(id: ID!): PredictionModel
+    startModelTraining(device: ID!): ModelTrainingProgressResult!
 }
 
 type Subscription {
     deviceSignal(device: ID, scanner: ID): DeviceSignal!
     learntSignal: DeviceSignal!
+    modelTrainingProgress(device: ID!): ModelTrainingProgressResult!
 }
-
-#
-# Scalars
-#
-scalar Datetime

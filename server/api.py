@@ -2,8 +2,8 @@ from datetime import datetime
 import dateutil
 from tortoise.exceptions import DoesNotExist, IntegrityError
 from server.eventbus import eventbus
-from server.events import DeviceSignalEvent, LearntDeviceSignalEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent
-from server.models import Device, DeviceSignal, Room, Scanner
+from server.events import DeviceSignalEvent, LearntDeviceSignalEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent
+from server.models import Device, DeviceSignal, PredictionModel, Room, Scanner
 from ariadne import (
     ObjectType, ScalarType, MutationType, SubscriptionType,
     make_executable_schema, load_schema_from_path,
@@ -49,6 +49,7 @@ async def resolve_add_device(_, info, input):
                 uuid=input['uuid'],
                 display_name=input.get('displayName', ''),
                 use_name_as_id=input.get('useNameAsId', False),
+                prediction_model_id=input.get('predictionModel', None)
             )
         }
     except IntegrityError:
@@ -68,6 +69,7 @@ async def resolve_update_device(_, info, input):
             uuid=input['uuid'],
             display_name=input.get('displayName', ''),
             use_name_as_id=input.get('useNameAsId', False),
+            prediction_model_id=input.get('predictionModel', None)
         )
         return {
             "device": await Device.get(id=input['id'])
@@ -220,6 +222,21 @@ async def resolve_remove_scanner(_, info, id):
         return None
 
 
+@query.field("allPredictionModels")
+async def resolve_prediction_models(_, info):
+    return await PredictionModel.all().order_by('-created_at')
+
+
+@mutation.field("removePredictionModel")
+async def resolve_remove_prediction_model(_, info, id):
+    try:
+        prediction_model = await PredictionModel.get(id=id)
+        await prediction_model.delete()
+        return prediction_model
+    except DoesNotExist:
+        return None
+
+
 @mutation.field("startSignalsRecording")
 async def resolve_start_signals_recording(_, info, room, device):
     try:
@@ -241,6 +258,20 @@ async def resolve_start_signals_recording(_, info, room, device):
 async def resolve_stop_signals_recording(_, info):
     eventbus.post(StopRecordingSignalsEvent())
     return {}
+
+
+@mutation.field("startModelTraining")
+async def resolve_start_model_training(_, info, device):
+    try:
+        eventbus.post(TrainPredictionModelEvent(device=await Device.get(id=device)))
+        return {}
+    except DoesNotExist:
+        return {
+            "error": {
+                "code": "does_not_exist",
+                "message": "Given device does not exist"
+            }
+        }
 
 
 @subscription.source("deviceSignal")
@@ -279,6 +310,19 @@ async def resolve_learnt_signal_sub(_, info):
 @subscription.field("deviceSignal")
 def resolve_subscription_device_signal(signal, info, **kwargs):
     return signal
+
+
+@subscription.source("modelTrainingProgress")
+async def resolve_model_training_progress_sub(_, info, device):
+    async with eventbus.subscribe(TrainingProgressEvent) as subscriber:
+        async for event in subscriber:
+            if event.device.id == int(device):
+                yield {"progress": event}
+
+
+@subscription.field("modelTrainingProgress")
+def resolve_model_training_progress(event, info, **kwargs):
+    return event
 
 
 resolvers = [

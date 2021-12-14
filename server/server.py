@@ -1,6 +1,5 @@
 from ariadne.asgi import GraphQL
 from starlette.applications import Starlette
-from server import config
 from server.mqtt import setup_mqtt
 from server.service import start_service
 from server.models import init_db, close_db
