@@ -1,9 +1,9 @@
 from datetime import datetime
 import pickle
-import concurrent.futures
 import asyncio
 import pandas as pd
 import numpy as np
+import functools
 from server.eventbus import eventbus
 from server.kalman import KalmanRSSI
 from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
@@ -23,6 +23,16 @@ from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
 
 
+def run_in_executor(f):
+    @functools.wraps(f)
+    def inner(*args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return loop.run_in_executor(None, lambda: f(*args, **kwargs))
+
+    return inner
+
+
+@run_in_executor
 def prepare_training_data(signals):
     used_data_df = pd.DataFrame([{
         'rssi': x.rssi,
@@ -101,6 +111,7 @@ def calculate_best_thresholds(estimator, X, y):
     return room_thresholds, np.mean(scores)
 
 
+@run_in_executor
 def train_model(X_train, X_test, y_train, y_test):
     try:
         estimator = OneVsRestClassifier(LogisticRegression(
@@ -130,12 +141,8 @@ async def threaded_prepare_training_data(device):
         message="Prepearing the training dataset"
     )
 
-    loop = asyncio.get_running_loop()
     signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
-
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        result = loop.run_in_executor(pool, prepare_training_data, signals)
-    X_train, X_test, y_train, y_test = (await asyncio.gather(result))[0]
+    X_train, X_test, y_train, y_test = await prepare_training_data(signals)
 
     report_training_progress(
         device=device,
@@ -152,10 +159,7 @@ async def threaded_train_model(device, X_train, X_test, y_train, y_test):
         message="Starting to train the model"
     )
 
-    loop = asyncio.get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        result = loop.run_in_executor(pool, train_model, X_train, X_test, y_train, y_test)
-    accuracy, model, error = (await asyncio.gather(result))[0]
+    accuracy, model, error = await train_model(X_train, X_test, y_train, y_test)
 
     report_training_progress(
         device=device,

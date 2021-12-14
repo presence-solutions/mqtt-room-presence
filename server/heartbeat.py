@@ -145,30 +145,7 @@ class DeviceTracker:
         eventbus.post(event)
 
     def send_device_signal(self, scanner_uuid, signal):
-        print('Processed signal from {} / {}, rssi {}'.format(
-            self.device.name, scanner_uuid, signal['rssi']))
-
         eventbus.post(DeviceSignalEvent(device=self.device, signal=signal, scanner_uuid=scanner_uuid))
-
-
-class SimulatedDeviceTracker(DeviceTracker):
-    def __init__(self, device):
-        super().__init__(device)
-        self.heartbeats = []
-
-    def stop(self):
-        super().stop()
-        self.heartbeats = []
-
-    def track(self):
-        pass
-
-    def send_heartbeat_event(self, event):
-        if event.signals is not None:
-            self.heartbeats.append(event.signals)
-
-    def send_device_signal(self, scanner_uuid, signal):
-        pass
 
 
 class Heartbeat(EventBusSubscriber):

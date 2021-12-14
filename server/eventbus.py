@@ -1,8 +1,8 @@
-from asyncio import create_task
 import asyncio
 from asyncio.coroutines import iscoroutine
 from asyncio.events import AbstractEventLoop
 from asyncio.futures import Future
+from asyncio.queues import Queue
 from collections import namedtuple
 import inspect
 
@@ -11,20 +11,30 @@ class EventBus:
     event_method = {}
 
     def post(self, event):
+        results = []
         methods = self.event_method.get(event.__class__, {})
         for method, decriptor in methods.items():
             instances, with_instance = decriptor
 
             if not with_instance:
-                self.call(method=method, with_event=event, subscriber=None)
+                results.append(self.call(method=method, with_event=event, subscriber=None))
             else:
                 for instance in instances:
-                    self.call(method=method, with_event=event, subscriber=instance)
+                    results.append(self.call(method=method, with_event=event, subscriber=instance))
+
+        return_fut = asyncio.get_running_loop().create_future()
+        results_fut = asyncio.gather(*results)
+        results_fut.add_done_callback(lambda x: return_fut.set_result(True))
+        return return_fut
 
     def call(self, method, with_event, subscriber):
-        coro = method(subscriber, with_event) if subscriber else method(with_event)
-        if iscoroutine(coro):
-            create_task(coro)
+        result = method(subscriber, with_event) if subscriber else method(with_event)
+        if iscoroutine(result):
+            return result
+        else:
+            fut = asyncio.get_running_loop().create_future()
+            fut.set_result(result)
+            return fut
 
     def register_instance_subscribers(self, instance, methods, on_event=None):
         for method in methods:
@@ -61,18 +71,18 @@ class AsyncEventsIterator():
         self.on_event = on_event
         self.eventbus = eventbus
         self.loop = asyncio.get_running_loop()
-        self.future_event = self.loop.create_future()
+        self.queue = Queue()
+        self.stopped = False
 
     async def event_receiver(self, event):
-        if not self.future_event.done():
-            self.future_event.set_result(event)
-            self.future_event = self.loop.create_future()
+        if not self.stopped:
+            self.queue.put_nowait(event)
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        next_event = await self.future_event
+        next_event = await self.queue.get()
         if next_event:
             return next_event
         else:
@@ -86,9 +96,10 @@ class AsyncEventsIterator():
         self.stop()
 
     def stop(self):
-        self.eventbus.remove_subscriber_method(self.on_event, self.event_receiver)
-        if not self.future_event.done():
-            self.future_event.set_result(None)
+        if not self.stopped:
+            self.stopped = True
+            self.eventbus.remove_subscriber_method(self.on_event, self.event_receiver)
+            self.queue.put_nowait(None)
 
 
 class EventBusMetaclass(type):

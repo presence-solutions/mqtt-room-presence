@@ -24,7 +24,6 @@ def serialize_datetime(value):
 
 @datetime_scalar.value_parser
 def parse_datetime_value(value):
-    # dateutil is provided by python-dateutil library
     if value:
         return dateutil.parser.parse(value)
 
