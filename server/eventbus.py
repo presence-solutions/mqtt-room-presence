@@ -5,12 +5,15 @@ from asyncio.futures import Future
 from asyncio.queues import Queue
 from collections import namedtuple
 import inspect
+import logging
 
 
 class EventBus:
     event_method = {}
 
     def post(self, event):
+        self.print_debug_message(event)
+
         results = []
         methods = self.event_method.get(event.__class__, {})
         for method, decriptor in methods.items():
@@ -59,6 +62,11 @@ class EventBus:
 
     def subscribe(self, on_event):
         return AsyncEventsIterator(self, on_event)
+
+    def print_debug_message(self, event):
+        event_log_level = getattr(event, 'log_level', None)
+        if event_log_level is not None and event_log_level >= logging.root.level:
+            logging.log(event_log_level, str(event))
 
 
 class AsyncEventsIterator():
