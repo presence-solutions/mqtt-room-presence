@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import numpy as np
 
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
@@ -81,17 +82,18 @@ class HeratbeatGenerator:
             if self.turn_off_delay is not None and last_signal_delay >= self.turn_off_delay:
                 self.values[scanner] = -100
                 self.last_change[scanner] = time
+                self.last_signal[scanner] = time
                 logging.info('%s scanner %s turn off penalty', repr(self.device), scanner)
 
             elif self.long_delay is not None and last_change_delay >= self.long_delay:
-                self.values[scanner] = self.filters[scanner].filter(-95)
+                self.values[scanner] = self.filters[scanner].filter(-100)
                 self.last_change[scanner] = time
                 logging.info('%s scanner %s long delay penalty', repr(self.device), scanner)
 
         return self.create_heartbeat(signals, time)
 
     def create_heartbeat(self, signals, time):
-        return dict(self.values)
+        return dict((s, np.round(v)) for s, v in self.values.items())
 
 
 class DeviceTracker:

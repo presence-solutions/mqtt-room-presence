@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from server.eventbus import eventbus
 from server.kalman import KalmanRSSI
-from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
+from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OFF_DEVICE_SEC
 
 from server.utils import calculate_inputs_hash, run_in_executor
 
@@ -40,7 +40,8 @@ def prepare_training_data(signals):
         (session_dur_df['when_max'] - session_dur_df['when_min']) / np.timedelta64(1, 's'))
     session_dur_df['frequency'] = session_dur_df['signals'] / session_dur_df['when_diff']
     filters = dict([(s, KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)) for s in sorted_scanners])
-    signals_history = dict([(s, 0) for s in sorted_scanners])
+    off_signals_history = dict([(s, 0) for s in sorted_scanners])
+    delay_signals_history = dict([(s, 0) for s in sorted_scanners])
     result_data = []
 
     for _ in range(10):
@@ -52,18 +53,23 @@ def prepare_training_data(signals):
                 for position in np.random.choice(positions, len(positions), replace=False):
                     signals_per_sec = session_dur_df.loc[(room, position), 'frequency']
                     signals = used_data_df[(used_data_df['room'] == room) & (used_data_df['position'] == position)]
-                    signals = signals.sample(min(len(signals), 200))
+                    signals = signals.sample(n=min(len(signals), 300), replace=True)
 
                     for _, row in signals.iterrows():
                         seconds_passed += 1 / signals_per_sec
-                        signals_history[row['scanner']] = 0
+                        off_signals_history[row['scanner']] = 0
+                        delay_signals_history[row['scanner']] = 0
                         filters[row['scanner']].filter(row['rssi'])
-                        data_row = [filters[s].lastMeasurement() or -100 for s in sorted_scanners]
+                        data_row = [np.round(filters[s].lastMeasurement() or -100) for s in sorted_scanners]
 
                         for s in sorted_scanners:
-                            signals_history[s] += 1
-                            if signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
-                                signals_history[s] = 0
+                            off_signals_history[s] += 1
+                            delay_signals_history[s] += 1
+                            if off_signals_history[s] > (TURN_OFF_DEVICE_SEC / signals_per_sec):
+                                off_signals_history[s] = 0
+                                filters[s].x = -100
+                            elif delay_signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
+                                delay_signals_history[s] = 0
                                 filters[s].filter(-100)
 
                         if room_init:
