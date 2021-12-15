@@ -25,7 +25,7 @@ class HeartbeatEvent(namedtuple(
 
 class OccupancyEvent(namedtuple(
     'OccupancyEvent',
-    'device_id, room_occupancy'
+    'device, room_occupancy, signals'
 )):
     log_level = logging.INFO
 

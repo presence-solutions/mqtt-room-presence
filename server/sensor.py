@@ -84,7 +84,7 @@ class DeviceState:
         else:
             merged_occupancy = dict((r, False) for r, _ in self.in_rooms.items())
             merged_occupancy.update(dict((r, False) for r, _ in self.maybe_in_rooms.items()))
-            merged_occupancy.update(room_occupancy)
+            merged_occupancy.update(dict((o['room'].id, o['state']) for o in room_occupancy))
             results = (self.update_room(r, s) for r, s in merged_occupancy.items())
             await asyncio.gather(*results)
 
@@ -189,8 +189,8 @@ class Sensor(EventBusSubscriber):
 
     @subscribe(OccupancyEvent)
     async def handle_device_occupancy(self, event):
-        if event.device_id not in self.device_states:
+        if event.device.id not in self.device_states:
             return
 
-        await self.device_states[event.device_id].update(event.room_occupancy)
+        await self.device_states[event.device.id].update(event.room_occupancy)
         await self.recompute_state()

@@ -1,18 +1,17 @@
 from datetime import datetime
 import pickle
-import asyncio
+
 import pandas as pd
 import numpy as np
-import functools
 from server.eventbus import eventbus
 from server.kalman import KalmanRSSI
 from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
 
-from server.utils import calculate_inputs_hash
+from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
 from server.eventbus import EventBusSubscriber, subscribe
@@ -21,15 +20,6 @@ from server.events import (
     StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent)
 from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
-
-
-def run_in_executor(f):
-    @functools.wraps(f)
-    def inner(*args, **kwargs):
-        loop = asyncio.get_running_loop()
-        return loop.run_in_executor(None, lambda: f(*args, **kwargs))
-
-    return inner
 
 
 @run_in_executor
@@ -114,8 +104,8 @@ def calculate_best_thresholds(estimator, X, y):
 @run_in_executor
 def train_model(X_train, X_test, y_train, y_test):
     try:
-        estimator = OneVsRestClassifier(LogisticRegression(
-            penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
+        estimator = OneVsRestClassifier(RandomForestClassifier(
+            n_estimators=10, class_weight='balanced', n_jobs=-1))
         estimator.fit(X_train, y_train)
     except Exception as e:
         return 0, None, e
@@ -134,7 +124,7 @@ def report_training_progress(**kwargs):
     }))
 
 
-async def threaded_prepare_training_data(device):
+async def looped_prepare_training_data(device):
     report_training_progress(
         device=device,
         status_code="generating_dataset",
@@ -152,7 +142,7 @@ async def threaded_prepare_training_data(device):
     return X_train, X_test, y_train, y_test
 
 
-async def threaded_train_model(device, X_train, X_test, y_train, y_test):
+async def looped_train_model(device, X_train, X_test, y_train, y_test):
     report_training_progress(
         device=device,
         status_code="training_started",
@@ -254,8 +244,8 @@ class Learn(EventBusSubscriber):
 
         rooms, scanners = await get_rooms_scanners()
         inputs_hash = await calculate_inputs_hash(rooms, scanners)
-        training_data = await threaded_prepare_training_data(device)
-        accuracy, model, error = await threaded_train_model(device, *training_data)
+        training_data = await looped_prepare_training_data(device)
+        accuracy, model, error = await looped_train_model(device, *training_data)
 
         if error is not None:
             report_training_progress(
