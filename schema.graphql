@@ -82,6 +82,12 @@ type RoomUpdateResult {
     room: Room
 }
 
+type RoomState {
+    room: Room!
+    state: Boolean!
+    devices: [Device!]
+}
+
 #
 # Scanner
 #
@@ -212,4 +218,5 @@ type Subscription {
     deviceSignal(device: ID, scanner: ID): DeviceSignal!
     learntSignal: DeviceSignal!
     modelTrainingProgress(device: ID!): ModelTrainingProgressResult!
+    roomState(room: ID): RoomState!
 }

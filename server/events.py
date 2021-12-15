@@ -78,6 +78,13 @@ class RoomRemovedEvent(namedtuple(
     pass
 
 
+class RoomStateChangeEvent(namedtuple(
+    'RoomStateChangeEvent',
+    'room, state, devices'
+)):
+    pass
+
+
 class StartRecordingSignalsEvent(namedtuple(
     'StartRecordingSignals',
     'device, room'

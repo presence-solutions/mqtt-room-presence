@@ -2,7 +2,7 @@ from datetime import datetime
 import dateutil
 from tortoise.exceptions import DoesNotExist, IntegrityError
 from server.eventbus import eventbus
-from server.events import DeviceSignalEvent, LearntDeviceSignalEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent
+from server.events import DeviceSignalEvent, LearntDeviceSignalEvent, RoomStateChangeEvent, StartRecordingSignalsEvent, StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent
 from server.models import Device, DeviceSignal, PredictionModel, Room, Scanner
 from ariadne import (
     ObjectType, ScalarType, MutationType, SubscriptionType,
@@ -305,12 +305,6 @@ async def resolve_learnt_signal_sub(_, info):
             yield event.device_signal
 
 
-@subscription.field("learntSignal")
-@subscription.field("deviceSignal")
-def resolve_subscription_device_signal(signal, info, **kwargs):
-    return signal
-
-
 @subscription.source("modelTrainingProgress")
 async def resolve_model_training_progress_sub(_, info, device):
     async with eventbus.subscribe(TrainingProgressEvent) as subscriber:
@@ -319,9 +313,20 @@ async def resolve_model_training_progress_sub(_, info, device):
                 yield {"progress": event}
 
 
+@subscription.source("roomState")
+async def resolve_room_state_sub(_, info, room):
+    async with eventbus.subscribe(RoomStateChangeEvent) as subscriber:
+        async for event in subscriber:
+            if not room or event.room.id == int(room):
+                yield event
+
+
+@subscription.field("learntSignal")
+@subscription.field("deviceSignal")
 @subscription.field("modelTrainingProgress")
-def resolve_model_training_progress(event, info, **kwargs):
-    return event
+@subscription.field("roomState")
+def resolve_subscription_universal(signal, info, **kwargs):
+    return signal
 
 
 resolvers = [
