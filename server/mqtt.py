@@ -59,8 +59,10 @@ async def start_mqtt():
         try:
             await connect_mqtt()
         except MqttError as error:
-            eventbus.post(MQTTDisconnectedEvent())
-            print(f'Error "{error}". Reconnecting in {reconnect_interval} seconds.')
+            eventbus.post(MQTTDisconnectedEvent(
+                error=error,
+                reconnect_interval=reconnect_interval
+            ))
         finally:
             await asyncio.sleep(reconnect_interval)
 

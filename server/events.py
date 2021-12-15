@@ -38,7 +38,7 @@ class MQTTConnectedEvent(namedtuple(
 
 class MQTTDisconnectedEvent(namedtuple(
     'MQTTDisconnectedEvent',
-    ''
+    'error, reconnect_interval'
 )):
     pass
 
