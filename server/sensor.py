@@ -1,5 +1,5 @@
 import asyncio
-from server.constants import DEVICE_CHANGE_STATE_SECONDS
+from server.constants import DEVICE_CHANGE_STATE_BEATS, DEVICE_CHANGE_STATE_SECONDS
 import jsons
 from datetime import datetime
 from server.eventbus import EventBusSubscriber, subscribe
@@ -53,23 +53,28 @@ class DeviceState:
         current_maybe_state = self.maybe_in_rooms.get(room_id, {
             'last_state': room_state,
             'appeared_at': datetime.now().timestamp(),
+            'appeared_times': 0,
         })
         self.maybe_in_rooms[room_id] = current_maybe_state
-
-        # The state is not changed for X seconds – make the state as active
-        if all([
-            current_maybe_state['last_state'] == room_state,
-            (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS
-        ]):
-            current_maybe_state['appeared_at'] = now_timestamp
-            self.in_rooms[room_id] = room_state
+        current_maybe_state['appeared_times'] += 1
 
         # State is different, start measuring the state staleness
-        elif current_maybe_state['last_state'] != room_state:
+        if current_maybe_state['last_state'] != room_state:
             self.maybe_in_rooms[room_id] = {
                 'last_state': room_state,
                 'appeared_at': now_timestamp,
+                'appeared_times': 0,
             }
+
+        # The state is not changed for X seconds – make the state as active
+        elif all([
+            current_maybe_state['last_state'] == room_state,
+            (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS,
+            current_maybe_state['appeared_times'] >= DEVICE_CHANGE_STATE_BEATS,
+        ]):
+            current_maybe_state['appeared_at'] = now_timestamp
+            current_maybe_state['appeared_times'] = 0
+            self.in_rooms[room_id] = room_state
 
     async def update(self, room_occupancy):
         # When the device is not detected in any rooms – clear the state
