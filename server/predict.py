@@ -43,8 +43,8 @@ class Predict(EventBusSubscriber):
         # No signals provided – the device is out
         if not event.signals:
             eventbus.post(OccupancyEvent(
-                device=event.device.id,
-                room_occupancy={},
+                device=event.device,
+                room_occupancy=[],
                 signals=None,
             ))
             return
