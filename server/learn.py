@@ -13,6 +13,9 @@ from sklearn import metrics
 from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectFromModel
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
@@ -80,7 +83,7 @@ def threaded_prepare_training_data(signals):
     result_data = pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
     result_data.drop_duplicates(inplace=True)
     X, y = (result_data.iloc[:, :-1], result_data.room.values)
-    return train_test_split(X, y, stratify=y, random_state=42, test_size=0.2)
+    return train_test_split(X, y, stratify=y, random_state=42, test_size=0.5)
 
 
 def calculate_best_thresholds(estimator, X, y):
@@ -89,7 +92,7 @@ def calculate_best_thresholds(estimator, X, y):
     pred_probas_df = pd.DataFrame(
         [dict(list(zip(sorted_rooms, r)) + [('_room', y[i])]) for i, r in enumerate(pred_probas)])
     room_thresholds = {}
-    beta = 12  # recall is more important than precision
+    beta = 4  # recall is more important than precision
     scores = []
 
     for _, room in enumerate(sorted_rooms):
@@ -110,8 +113,12 @@ def calculate_best_thresholds(estimator, X, y):
 @run_in_executor
 def threaded_train_model(X_train, X_test, y_train, y_test):
     try:
-        estimator = OneVsRestClassifier(LogisticRegression(
-            penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
+        estimator = OneVsRestClassifier(Pipeline([
+            ('feature_selection', SelectFromModel(LogisticRegression(
+                penalty='l1', solver='liblinear', class_weight='balanced', C=0.0005, max_iter=10000),
+                max_features=4)),
+            ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
+        ]))
         estimator.fit(X_train, y_train)
     except Exception as e:
         return 0, None, e
