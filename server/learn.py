@@ -10,8 +10,8 @@ from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OF
 from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
+from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
 from server.eventbus import EventBusSubscriber, subscribe
@@ -23,7 +23,7 @@ from server.models import (
 
 
 @run_in_executor
-def prepare_training_data(signals):
+def threaded_prepare_training_data(signals):
     used_data_df = pd.DataFrame([{
         'rssi': x.rssi,
         'scanner': x.scanner.id,
@@ -108,10 +108,10 @@ def calculate_best_thresholds(estimator, X, y):
 
 
 @run_in_executor
-def train_model(X_train, X_test, y_train, y_test):
+def threaded_train_model(X_train, X_test, y_train, y_test):
     try:
-        estimator = OneVsRestClassifier(RandomForestClassifier(
-            n_estimators=10, class_weight='balanced', n_jobs=-1))
+        estimator = OneVsRestClassifier(LogisticRegression(
+            penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
         estimator.fit(X_train, y_train)
     except Exception as e:
         return 0, None, e
@@ -130,7 +130,7 @@ def report_training_progress(**kwargs):
     }))
 
 
-async def looped_prepare_training_data(device):
+async def prepare_training_data(device):
     report_training_progress(
         device=device,
         status_code="generating_dataset",
@@ -138,7 +138,7 @@ async def looped_prepare_training_data(device):
     )
 
     signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
-    X_train, X_test, y_train, y_test = await prepare_training_data(signals)
+    X_train, X_test, y_train, y_test = await threaded_prepare_training_data(signals)
 
     report_training_progress(
         device=device,
@@ -148,14 +148,14 @@ async def looped_prepare_training_data(device):
     return X_train, X_test, y_train, y_test
 
 
-async def looped_train_model(device, X_train, X_test, y_train, y_test):
+async def train_model(device, X_train, X_test, y_train, y_test):
     report_training_progress(
         device=device,
         status_code="training_started",
         message="Starting to train the model"
     )
 
-    accuracy, model, error = await train_model(X_train, X_test, y_train, y_test)
+    accuracy, model, error = await threaded_train_model(X_train, X_test, y_train, y_test)
 
     report_training_progress(
         device=device,
@@ -250,8 +250,8 @@ class Learn(EventBusSubscriber):
 
         rooms, scanners = await get_rooms_scanners()
         inputs_hash = await calculate_inputs_hash(rooms, scanners)
-        training_data = await looped_prepare_training_data(device)
-        accuracy, model, error = await looped_train_model(device, *training_data)
+        training_data = await prepare_training_data(device)
+        accuracy, model, error = await train_model(device, *training_data)
 
         if error is not None:
             report_training_progress(
