@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import numpy as np
 
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
@@ -93,7 +92,7 @@ class HeratbeatGenerator:
         return self.create_heartbeat(signals, time)
 
     def create_heartbeat(self, signals, time):
-        return dict((s, np.round(v)) for s, v in self.values.items())
+        return dict(self.values)
 
 
 class DeviceTracker:
