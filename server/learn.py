@@ -10,9 +10,13 @@ from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OF
 from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
-from sklearn.linear_model import LogisticRegression
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectorMixin
+from sklearn.base import BaseEstimator
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
@@ -60,7 +64,7 @@ def threaded_prepare_training_data(signals):
                         off_signals_history[row['scanner']] = 0
                         delay_signals_history[row['scanner']] = 0
                         filters[row['scanner']].filter(row['rssi'])
-                        data_row = [np.round(filters[s].lastMeasurement() or -100) for s in sorted_scanners]
+                        data_row = [np.round(filters[s].lastMeasurement() or -100, decimals=1) for s in sorted_scanners]
 
                         for s in sorted_scanners:
                             off_signals_history[s] += 1
@@ -80,44 +84,23 @@ def threaded_prepare_training_data(signals):
     result_data = pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
     result_data.drop_duplicates(inplace=True)
     X, y = (result_data.iloc[:, :-1], result_data.room.values)
-    return train_test_split(X, y, stratify=y, random_state=42, test_size=0.2)
-
-
-def calculate_best_thresholds(estimator, X, y):
-    pred_probas = estimator.predict_proba(X)
-    sorted_rooms = estimator.classes_
-    pred_probas_df = pd.DataFrame(
-        [dict(list(zip(sorted_rooms, r)) + [('_room', y[i])]) for i, r in enumerate(pred_probas)])
-    room_thresholds = {}
-    beta = 12  # recall is more important than precision
-    scores = []
-
-    for _, room in enumerate(sorted_rooms):
-        y_true = [1 if x else 0 for x in pred_probas_df['_room'] == room]
-        y_pred = list(pred_probas_df[room])
-        precision, recall, thresholds = metrics.precision_recall_curve(y_true, y_pred)
-        beta_squared = beta ** 2
-        fscore = ((1 + beta_squared) * precision * recall) / (beta_squared * precision + recall)
-        ix = np.argmax(fscore)
-        room_thresholds[room] = thresholds[ix]
-        scores.append(fscore[ix])
-        print('%s - Best Threshold=%f, F-Score=%.3f, Precision=%.3f, Recall=%.3f' % (
-            room, thresholds[ix], fscore[ix], precision[ix], recall[ix]))
-
-    return room_thresholds, np.mean(scores)
+    return train_test_split(X, y, stratify=y, random_state=1, test_size=0.5)
 
 
 @run_in_executor
 def threaded_train_model(X_train, X_test, y_train, y_test):
     try:
-        estimator = OneVsRestClassifier(LogisticRegression(
-            penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
+        estimator = OneVsRestClassifier(Pipeline([
+            ('select', SelectHighestMean()),
+            ('scale', StandardScaler()),
+            ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
+        ]))
         estimator.fit(X_train, y_train)
+        accuracy = metrics.recall_score(y_test, estimator.predict(X_test), average='micro')
+        estimator = PresenceEstimator(estimator)
     except Exception as e:
         return 0, None, e
 
-    room_thresholds, accuracy = calculate_best_thresholds(estimator, X_test, y_test)
-    estimator = ThresholdsBasedEstimator(estimator, room_thresholds)
     return accuracy, estimator, None
 
 
@@ -166,17 +149,35 @@ async def train_model(device, X_train, X_test, y_train, y_test):
     return accuracy, model, error
 
 
-class ThresholdsBasedEstimator:
-    def __init__(self, estimator, thresholds) -> None:
+class PresenceEstimator:
+    def __init__(self, estimator) -> None:
         self.estimator = estimator
-        self.thresholds = thresholds
 
     def predict_proba(self, data_row):
         pred_result = list(zip(self.estimator.classes_, self.estimator.predict_proba(data_row)[0]))
-        max_pred_result = max(pred_result, key=lambda x: x[1])
-        pred_result = [r for r in pred_result if r[1] >= self.thresholds[r[0]]]
-        pred_result = [max_pred_result] if not pred_result else pred_result
-        return [dict(pred_result)]
+        max_pred_result = [max(pred_result, key=lambda x: x[1])]
+        return [dict(max_pred_result)]
+
+
+class SelectHighestMean(SelectorMixin, BaseEstimator):
+    """
+    Use only the scanners with the highest mean and ignore
+    those where the mean is worse than -90
+    """
+    def fit(self, X, y):
+        self.means_ = np.mean(X[y == 1], axis=0)
+        return self
+
+    def _more_tags(self):
+        return {'requires_y': True}
+
+    def _get_support_mask(self):
+        highest_indexes = np.argsort(self.means_, kind="mergesort")
+        mask = np.zeros(self.means_.shape, dtype=bool)
+        mask[highest_indexes[-4:]] = 1
+        mask[self.means_ < -90] = 0
+        mask[highest_indexes[-1:]] = 1
+        return mask
 
 
 class Learn(EventBusSubscriber):
