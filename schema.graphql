@@ -1,0 +1,222 @@
+#
+# Commons
+#
+type ExecutionError {
+    code: String
+    message: String
+}
+
+#
+# Device
+#
+type Device {
+    id: ID!
+    name: String
+    uuid: String
+    displayName: String
+    useNameAsId: Boolean!
+    predictionModel: PredictionModel
+    usedByModels: [PredictionModel!]
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+input NewDeviceInput {
+    name: String!
+    uuid: String!
+    displayName: String
+    useNameAsId: Boolean
+    predictionModel: ID
+}
+
+type DeviceCreateResult {
+    error: ExecutionError
+    device: Device
+}
+
+input UpdateDeviceInput {
+    id: ID!
+    name: String!
+    uuid: String!
+    displayName: String
+    useNameAsId: Boolean
+    predictionModel: ID
+}
+
+type DeviceUpdateResult {
+    error: ExecutionError
+    device: Device
+}
+
+#
+# Room
+#
+type Scanner
+
+type Room {
+    id: ID!
+    name: String
+    scanners: [Scanner!]
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+input NewRoomInput {
+    name: String!
+    scanners: [ID!]
+}
+
+type RoomCreateResult {
+    error: ExecutionError
+    room: Room
+}
+
+input UpdateRoomInput {
+    id: ID!
+    name: String!
+    scanners: [ID!]
+}
+
+type RoomUpdateResult {
+    error: ExecutionError
+    room: Room
+}
+
+type RoomState {
+    room: Room!
+    state: Boolean!
+    devices: [Device!]
+}
+
+#
+# Scanner
+#
+extend type Scanner {
+    id: ID
+    uuid: String!
+    displayName: String
+    usedInRooms: [Room!]
+    createdAt: Datetime
+    updatedAt: Datetime
+    unknown: Boolean
+}
+
+input NewScannerInput {
+    uuid: String!
+    displayName: String
+    usedInRooms: [ID!]
+}
+
+type ScannerCreateResult {
+    error: ExecutionError
+    scanner: Scanner
+}
+
+input UpdateScannerInput {
+    id: ID!
+    uuid: String!
+    displayName: String
+    usedInRooms: [ID!]
+}
+
+type ScannerUpdateResult {
+    error: ExecutionError
+    scanner: Scanner
+}
+
+#
+# Signals recording
+#
+type LearningSession {
+    id: ID!
+}
+
+type StartSignalsRecordingResult {
+    error: ExecutionError
+}
+
+type StopSignalsRecordingResult {
+    error: ExecutionError
+    recording: LearningSession
+}
+
+type DeviceSignal {
+    id: ID
+    learningSession: LearningSession
+    room: Room
+    device: Device!
+    scanner: Scanner!
+    rssi: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+#
+# Model training
+#
+type PredictionModel {
+    id: ID!
+    displayName: String
+    inputsHash: String!
+    accuracy: Float
+    devices: [Device!]
+    usedByDevices: [Device!]
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+type ModelTrainingProgress {
+    device: Device!
+    statusCode: String!
+    message: String!
+    predictionModel: PredictionModel
+    isError: Boolean
+    isFinal: Boolean
+}
+
+type ModelTrainingProgressResult {
+    error: ExecutionError
+    progress: ModelTrainingProgress
+}
+
+#
+# Scalars
+#
+scalar Datetime
+
+#
+# Root
+#
+type Query {
+    allDevices: [Device!]!
+    allRooms: [Room!]!
+    allScanners: [Scanner!]!
+    allPredictionModels: [PredictionModel!]!
+}
+
+type Mutation {
+    addDevice(input: NewDeviceInput!): DeviceCreateResult!
+    updateDevice(input: UpdateDeviceInput!): DeviceUpdateResult!
+    removeDevice(id: ID!): Device
+
+    addRoom(input: NewRoomInput!): RoomCreateResult!
+    updateRoom(input: UpdateRoomInput!): RoomUpdateResult!
+    removeRoom(id: ID!): Room
+
+    addScanner(input: NewScannerInput!): ScannerCreateResult!
+    updateScanner(input: UpdateScannerInput!): ScannerUpdateResult!
+    removeScanner(id: ID!): Scanner
+
+    startSignalsRecording(room: ID!, device: ID!): StartSignalsRecordingResult!
+    stopSignalsRecording: StopSignalsRecordingResult
+
+    removePredictionModel(id: ID!): PredictionModel
+    startModelTraining(device: ID!): ModelTrainingProgressResult!
+}
+
+type Subscription {
+    deviceSignal(device: ID, scanner: ID): DeviceSignal!
+    learntSignal: DeviceSignal!
+    modelTrainingProgress(device: ID!): ModelTrainingProgressResult!
+    roomState(room: ID): RoomState!
+}

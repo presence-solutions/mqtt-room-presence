@@ -1,20 +1,21 @@
 import asyncio
 import jsons
 from asyncio_mqtt import Client, MqttError
+from server import config
 from server.eventbus import eventbus
 from server.events import MQTTConnectedEvent, MQTTDisconnectedEvent, MQTTMessageEvent
 from contextlib import AsyncExitStack
 
 
-async def connect_mqtt(app):
+async def connect_mqtt():
     async with AsyncExitStack() as stack:
         tasks = set()
         stack.push_async_callback(cancel_tasks, tasks)
 
         # Connect to the MQTT broker
         client = Client(
-            hostname=app['config'].MQTT_BROKER_URL, port=app['config'].MQTT_BROKER_PORT,
-            username=app['config'].MQTT_USERNAME, password=app['config'].MQTT_PASSWORD)
+            hostname=str(config.MQTT_BROKER_URL), port=config.MQTT_BROKER_PORT,
+            username=str(config.MQTT_USERNAME), password=str(config.MQTT_PASSWORD))
 
         await stack.enter_async_context(client)
 
@@ -52,17 +53,19 @@ async def cancel_tasks(tasks):
             pass
 
 
-async def start_mqtt(app):
+async def start_mqtt():
     reconnect_interval = 3
     while True:
         try:
-            await connect_mqtt(app)
+            await connect_mqtt()
         except MqttError as error:
-            eventbus.post(MQTTDisconnectedEvent())
-            print(f'Error "{error}". Reconnecting in {reconnect_interval} seconds.')
+            eventbus.post(MQTTDisconnectedEvent(
+                error=error,
+                reconnect_interval=reconnect_interval
+            ))
         finally:
             await asyncio.sleep(reconnect_interval)
 
 
-async def setup_mqtt(app):
-    asyncio.create_task(start_mqtt(app))
+async def setup_mqtt():
+    asyncio.create_task(start_mqtt())

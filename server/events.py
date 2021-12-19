@@ -1,111 +1,111 @@
 from collections import namedtuple
+import logging
 
 
 class DeviceSignalEvent(namedtuple(
     'DeviceSignalEvent',
     'device, signal, scanner_uuid'
 )):
-    pass
+    log_level = logging.DEBUG
+
+
+class LearntDeviceSignalEvent(namedtuple(
+    'LearntDeviceSignalEvent',
+    'device_signal'
+)):
+    log_level = logging.DEBUG
 
 
 class HeartbeatEvent(namedtuple(
     'HeartbeatEvent',
     'device, signals, timestamp'
 )):
-    async def as_dict(self):
-        from server.serializers import DeviceView
-        result = self._asdict()
-        result['device'] = (await DeviceView.from_tortoise_orm(result['device'])).dict()
-        return result
+    log_level = logging.DEBUG
 
 
 class OccupancyEvent(namedtuple(
     'OccupancyEvent',
-    'device_id, room_occupancy'
+    'device, room_occupancy, signals'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class MQTTConnectedEvent(namedtuple(
     'MQTTConnectedEvent',
     'client'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class MQTTDisconnectedEvent(namedtuple(
     'MQTTDisconnectedEvent',
-    ''
+    'error, reconnect_interval'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class MQTTMessageEvent(namedtuple(
     'MQTTMessage',
     'topic, payload'
 )):
-    pass
+    log_level = logging.DEBUG
 
 
 class DeviceAddedEvent(namedtuple(
     'DeviceAddedEvent',
     'device'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class DeviceRemovedEvent(namedtuple(
     'DeviceRemovedEvent',
     'device'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class RoomAddedEvent(namedtuple(
     'RoomAddedEvent',
     'room'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class RoomRemovedEvent(namedtuple(
     'RoomRemovedEvent',
     'room'
 )):
-    pass
+    log_level = logging.INFO
+
+
+class RoomStateChangeEvent(namedtuple(
+    'RoomStateChangeEvent',
+    'room, state, devices'
+)):
+    log_level = logging.INFO
 
 
 class StartRecordingSignalsEvent(namedtuple(
     'StartRecordingSignals',
     'device, room'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class StopRecordingSignalsEvent():
-    pass
-
-
-class RegenerateHeartbeatsEvent(namedtuple(
-    'RegenerateHeartbeatsEvent',
-    'device'
-)):
-    pass
+    log_level = logging.INFO
 
 
 class TrainPredictionModelEvent(namedtuple(
     'TrainPredictionModel',
     'device'
 )):
-    pass
+    log_level = logging.INFO
 
 
 class TrainingProgressEvent(namedtuple(
     'TrainingProgressEvent',
-    'device, message, is_error, is_final'
+    'device, status_code, message, prediction_model, is_error, is_final'
 )):
-    async def as_dict(self):
-        from server.serializers import DeviceView
-        result = self._asdict()
-        result['device'] = (await DeviceView.from_tortoise_orm(result['device'])).dict()
-        return result
+    log_level = logging.INFO

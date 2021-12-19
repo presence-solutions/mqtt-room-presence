@@ -1,14 +1,13 @@
-import asyncio
 import pickle
-import concurrent.futures
 import pandas as pd
 from server.eventbus import eventbus
 from server.models import get_rooms_scanners
-from server.utils import calculate_inputs_hash
+from server.utils import calculate_inputs_hash, run_in_executor
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, OccupancyEvent
 
 
+@run_in_executor
 def predict_presence(estimator, data_row):
     return estimator.predict_proba(data_row)[0]
 
@@ -43,13 +42,17 @@ class Predict(EventBusSubscriber):
 
         # No signals provided – the device is out
         if not event.signals:
-            eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy={}))
+            eventbus.post(OccupancyEvent(
+                device=event.device,
+                room_occupancy=[],
+                signals=None,
+            ))
             return
 
-        loop = asyncio.get_running_loop()
         estimator, inputs_hash = self.prediction_models[event.device.id]
         rooms, scanners = await get_rooms_scanners()
         curr_inputs_hash = await calculate_inputs_hash(rooms=rooms, scanners=scanners)
+        rooms_map = dict((r.id, r) for r in rooms)
 
         # The inputs are different than expected by the model
         if inputs_hash != curr_inputs_hash:
@@ -57,11 +60,18 @@ class Predict(EventBusSubscriber):
             return
 
         # Predict presence in a separate thread
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            scanner_uuids = [s.uuid for s in scanners]
-            default_heartbeat = dict(zip(scanner_uuids, [-100] * len(scanner_uuids)))
-            data = pd.DataFrame([{**default_heartbeat, **event.signals}])
-            result = (await loop.run_in_executor(pool, predict_presence, estimator, data))
+        scanner_uuids = [s.uuid for s in scanners]
+        default_heartbeat = dict(zip(scanner_uuids, [-100] * len(scanner_uuids)))
+        data = pd.DataFrame([{**default_heartbeat, **event.signals}])
+        result = await predict_presence(estimator, data)
+        result = [{
+            "room": rooms_map[k],
+            "state": True,
+            "proba": result[k],
+        } for k in result.keys()]
 
-        result = dict((k, True) for k in result.keys())
-        eventbus.post(OccupancyEvent(device_id=event.device.id, room_occupancy=result))
+        eventbus.post(OccupancyEvent(
+            device=event.device,
+            room_occupancy=result,
+            signals=data.iloc[0].to_dict(),
+        ))

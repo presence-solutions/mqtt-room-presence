@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import numpy as np
 
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
@@ -35,7 +37,7 @@ class UnfilteredRSSI():
 class HeratbeatGenerator:
     def __init__(
         self, scanners=None, kalman=None, silent_scanner_penalty=None, long_delay=None,
-        turn_off_delay=None
+        turn_off_delay=None, device=None
     ) -> None:
         scanners = scanners or []
         self.values = dict(zip(scanners, [-100] * len(scanners)))
@@ -47,6 +49,7 @@ class HeratbeatGenerator:
         self.long_delay = long_delay
         self.filters = {} if kalman is not None else None
         self.kalman = kalman
+        self.device = device
 
     def process(self, signals, time, period):
         silent_scanners = set(self.values.keys())
@@ -74,19 +77,23 @@ class HeratbeatGenerator:
                 penalty_signal = max(self.values.get(scanner, -100) - self.silent_scanner_penalty, -100)
                 self.values[scanner] = self.filters[scanner].filter(penalty_signal)
                 self.last_change[scanner] = time
+                logging.info('%s scanner %s silent scanner penalty', repr(self.device), scanner)
 
             if self.turn_off_delay is not None and last_signal_delay >= self.turn_off_delay:
                 self.values[scanner] = -100
                 self.last_change[scanner] = time
+                self.last_signal[scanner] = time
+                logging.info('%s scanner %s turn off penalty', repr(self.device), scanner)
 
             elif self.long_delay is not None and last_change_delay >= self.long_delay:
                 self.values[scanner] = self.filters[scanner].filter(-100)
                 self.last_change[scanner] = time
+                logging.info('%s scanner %s long delay penalty', repr(self.device), scanner)
 
         return self.create_heartbeat(signals, time)
 
     def create_heartbeat(self, signals, time):
-        return dict(self.values)
+        return dict((s, np.round(v)) for s, v in self.values.items())
 
 
 class DeviceTracker:
@@ -121,12 +128,15 @@ class DeviceTracker:
         self.last_heartbeat = None
         self.gen = HeratbeatGenerator(
             long_delay=LONG_DELAY_PENALTY_SEC, kalman=(KALMAN_R, KALMAN_Q),
-            turn_off_delay=TURN_OFF_DEVICE_SEC)
+            turn_off_delay=TURN_OFF_DEVICE_SEC, device=self.device)
 
     async def next_cycle(self):
-        await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
-        self.create_heartbeat()
-        self.track()
+        try:
+            await asyncio.sleep(HEARTBEAT_COLLECT_PERIOD_SEC)
+            self.create_heartbeat()
+            self.track()
+        except Exception as e:
+            logging.error(e)
 
     def create_heartbeat(self, timestamp=None):
         timestamp = timestamp or datetime.now().timestamp()
@@ -145,30 +155,7 @@ class DeviceTracker:
         eventbus.post(event)
 
     def send_device_signal(self, scanner_uuid, signal):
-        print('Processed signal from {} / {}, rssi {}'.format(
-            self.device.name, scanner_uuid, signal['rssi']))
-
         eventbus.post(DeviceSignalEvent(device=self.device, signal=signal, scanner_uuid=scanner_uuid))
-
-
-class SimulatedDeviceTracker(DeviceTracker):
-    def __init__(self, device):
-        super().__init__(device)
-        self.heartbeats = []
-
-    def stop(self):
-        super().stop()
-        self.heartbeats = []
-
-    def track(self):
-        pass
-
-    def send_heartbeat_event(self, event):
-        if event.signals is not None:
-            self.heartbeats.append(event.signals)
-
-    def send_device_signal(self, scanner_uuid, signal):
-        pass
 
 
 class Heartbeat(EventBusSubscriber):

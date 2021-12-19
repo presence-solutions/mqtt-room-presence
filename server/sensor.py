@@ -1,11 +1,11 @@
 import asyncio
-from server.constants import DEVICE_CHANGE_STATE_SECONDS
+from server.constants import DEVICE_CHANGE_STATE_BEATS, DEVICE_CHANGE_STATE_SECONDS
 import jsons
 from datetime import datetime
-from server.eventbus import EventBusSubscriber, subscribe
+from server.eventbus import EventBusSubscriber, subscribe, eventbus
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, MQTTConnectedEvent, MQTTDisconnectedEvent,
-    OccupancyEvent, RoomAddedEvent, RoomRemovedEvent)
+    OccupancyEvent, RoomAddedEvent, RoomRemovedEvent, RoomStateChangeEvent)
 
 
 def get_room_topic(room):
@@ -53,23 +53,28 @@ class DeviceState:
         current_maybe_state = self.maybe_in_rooms.get(room_id, {
             'last_state': room_state,
             'appeared_at': datetime.now().timestamp(),
+            'appeared_times': 0,
         })
         self.maybe_in_rooms[room_id] = current_maybe_state
-
-        # The state is not changed for X seconds – make the state as active
-        if all([
-            current_maybe_state['last_state'] == room_state,
-            (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS
-        ]):
-            current_maybe_state['appeared_at'] = now_timestamp
-            self.in_rooms[room_id] = room_state
+        current_maybe_state['appeared_times'] += 1
 
         # State is different, start measuring the state staleness
-        elif current_maybe_state['last_state'] != room_state:
+        if current_maybe_state['last_state'] != room_state:
             self.maybe_in_rooms[room_id] = {
                 'last_state': room_state,
                 'appeared_at': now_timestamp,
+                'appeared_times': 0,
             }
+
+        # The state is not changed for X seconds – make the state as active
+        elif all([
+            current_maybe_state['last_state'] == room_state,
+            (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS,
+            current_maybe_state['appeared_times'] >= DEVICE_CHANGE_STATE_BEATS,
+        ]):
+            current_maybe_state['appeared_at'] = now_timestamp
+            current_maybe_state['appeared_times'] = 0
+            self.in_rooms[room_id] = room_state
 
     async def update(self, room_occupancy):
         # When the device is not detected in any rooms – clear the state
@@ -79,7 +84,7 @@ class DeviceState:
         else:
             merged_occupancy = dict((r, False) for r, _ in self.in_rooms.items())
             merged_occupancy.update(dict((r, False) for r, _ in self.maybe_in_rooms.items()))
-            merged_occupancy.update(room_occupancy)
+            merged_occupancy.update(dict((o['room'].id, o['state']) for o in room_occupancy))
             results = (self.update_room(r, s) for r, s in merged_occupancy.items())
             await asyncio.gather(*results)
 
@@ -93,6 +98,7 @@ class RoomTracker(EventBusSubscriber):
         self.room = room
         self.mqtt_client = mqtt_client
         self.state = False
+        self.active_devices = []
 
     async def configure(self):
         client = await self.mqtt_client()
@@ -111,16 +117,24 @@ class RoomTracker(EventBusSubscriber):
 
     async def recompute_state(self, device_states, force_publish=False):
         occupied = any(d.is_in_room(self.room.id) for k, d in device_states.items())
-        if occupied == self.state and not force_publish:
-            return
+        active_devices = [d.device for k, d in device_states.items() if d.is_in_room(self.room.id)]
+        state_changed = occupied != self.state
+        devices_changed = active_devices != self.active_devices
 
         self.state = occupied
+        self.active_devices = active_devices
 
-        client = await self.mqtt_client()
-        payload = 'ON' if occupied else 'OFF'
-        await client.publish(get_room_state_topic(self.room), payload)
+        if state_changed or devices_changed:
+            eventbus.post(RoomStateChangeEvent(
+                room=self.room,
+                state=occupied,
+                devices=active_devices
+            ))
 
-        print('Room {} turned to {}'.format(self.room.name, payload))
+        if state_changed or force_publish:
+            client = await self.mqtt_client()
+            payload = 'ON' if occupied else 'OFF'
+            await client.publish(get_room_state_topic(self.room), payload)
 
 
 class Sensor(EventBusSubscriber):
@@ -149,11 +163,13 @@ class Sensor(EventBusSubscriber):
     @subscribe(DeviceAddedEvent)
     async def handle_device_added(self, event):
         self.device_states[event.device.id] = DeviceState(event.device)
+        await self.recompute_state()
 
     @subscribe(DeviceRemovedEvent)
     async def handle_device_removed(self, event):
         if event.device.id in self.device_states:
             del self.device_states[event.device.id]
+            await self.recompute_state()
 
     @subscribe(RoomAddedEvent)
     async def handle_room_added(self, event):
@@ -173,8 +189,8 @@ class Sensor(EventBusSubscriber):
 
     @subscribe(OccupancyEvent)
     async def handle_device_occupancy(self, event):
-        if event.device_id not in self.device_states:
+        if event.device.id not in self.device_states:
             return
 
-        await self.device_states[event.device_id].update(event.room_occupancy)
+        await self.device_states[event.device.id].update(event.room_occupancy)
         await self.recompute_state()

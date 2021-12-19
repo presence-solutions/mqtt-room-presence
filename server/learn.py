@@ -1,27 +1,29 @@
+from datetime import datetime
 import pickle
-import concurrent.futures
-import asyncio
+
 import pandas as pd
 import numpy as np
+from server.eventbus import eventbus
 from server.kalman import KalmanRSSI
-from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC
+from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OFF_DEVICE_SEC
 
-from server.utils import calculate_inputs_hash
+from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
-from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.model_selection import train_test_split
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
-    DeviceSignalEvent, StartRecordingSignalsEvent,
-    StopRecordingSignalsEvent, TrainPredictionModelEvent)
+    DeviceRemovedEvent, DeviceSignalEvent, LearntDeviceSignalEvent, RoomRemovedEvent, StartRecordingSignalsEvent,
+    StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent)
 from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
 
 
-def prepare_training_data(signals):
+@run_in_executor
+def threaded_prepare_training_data(signals):
     used_data_df = pd.DataFrame([{
         'rssi': x.rssi,
         'scanner': x.scanner.id,
@@ -38,7 +40,8 @@ def prepare_training_data(signals):
         (session_dur_df['when_max'] - session_dur_df['when_min']) / np.timedelta64(1, 's'))
     session_dur_df['frequency'] = session_dur_df['signals'] / session_dur_df['when_diff']
     filters = dict([(s, KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)) for s in sorted_scanners])
-    signals_history = dict([(s, 0) for s in sorted_scanners])
+    off_signals_history = dict([(s, 0) for s in sorted_scanners])
+    delay_signals_history = dict([(s, 0) for s in sorted_scanners])
     result_data = []
 
     for _ in range(10):
@@ -50,26 +53,34 @@ def prepare_training_data(signals):
                 for position in np.random.choice(positions, len(positions), replace=False):
                     signals_per_sec = session_dur_df.loc[(room, position), 'frequency']
                     signals = used_data_df[(used_data_df['room'] == room) & (used_data_df['position'] == position)]
-                    signals = signals.sample(min(len(signals), 200))
+                    signals = signals.sample(n=min(len(signals), 300), replace=True)
 
                     for _, row in signals.iterrows():
                         seconds_passed += 1 / signals_per_sec
-                        signals_history[row['scanner']] = 0
+                        off_signals_history[row['scanner']] = 0
+                        delay_signals_history[row['scanner']] = 0
                         filters[row['scanner']].filter(row['rssi'])
-                        data_row = [filters[s].lastMeasurement() or -100 for s in sorted_scanners]
+                        data_row = [np.round(filters[s].lastMeasurement() or -100) for s in sorted_scanners]
 
                         for s in sorted_scanners:
-                            signals_history[s] += 1
-                            if signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
-                                signals_history[s] = 0
+                            off_signals_history[s] += 1
+                            delay_signals_history[s] += 1
+                            if off_signals_history[s] > (TURN_OFF_DEVICE_SEC / signals_per_sec):
+                                off_signals_history[s] = 0
+                                filters[s].x = -100
+                            elif delay_signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
+                                delay_signals_history[s] = 0
                                 filters[s].filter(-100)
 
                         if room_init:
                             result_data.append(data_row + [room])
-                        elif seconds_passed > 120:
+                        elif seconds_passed > 60:
                             room_init = True
 
-    return pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
+    result_data = pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
+    result_data.drop_duplicates(inplace=True)
+    X, y = (result_data.iloc[:, :-1], result_data.room.values)
+    return train_test_split(X, y, stratify=y, random_state=42, test_size=0.2)
 
 
 def calculate_best_thresholds(estimator, X, y):
@@ -96,13 +107,8 @@ def calculate_best_thresholds(estimator, X, y):
     return room_thresholds, np.mean(scores)
 
 
-def train_model(signals):
-    data_df = prepare_training_data(signals)
-    data_df.drop_duplicates(inplace=True)
-    X, y = (data_df.iloc[:, :-1], data_df.room.values)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42, test_size=0.2)
-    print('Training {}, testing {}'.format(str(len(y_train)), str(len(y_test))))
-
+@run_in_executor
+def threaded_train_model(X_train, X_test, y_train, y_test):
     try:
         estimator = OneVsRestClassifier(LogisticRegression(
             penalty='l1', solver='liblinear', class_weight='balanced', C=0.001, max_iter=10000))
@@ -113,6 +119,51 @@ def train_model(signals):
     room_thresholds, accuracy = calculate_best_thresholds(estimator, X_test, y_test)
     estimator = ThresholdsBasedEstimator(estimator, room_thresholds)
     return accuracy, estimator, None
+
+
+def report_training_progress(**kwargs):
+    eventbus.post(TrainingProgressEvent(**{
+        "is_final": False,
+        "is_error": False,
+        "prediction_model": None,
+        **kwargs
+    }))
+
+
+async def prepare_training_data(device):
+    report_training_progress(
+        device=device,
+        status_code="generating_dataset",
+        message="Prepearing the training dataset"
+    )
+
+    signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
+    X_train, X_test, y_train, y_test = await threaded_prepare_training_data(signals)
+
+    report_training_progress(
+        device=device,
+        status_code="dataset_ready",
+        message="The dataset is generated, training {}, testing {}".format(str(len(y_train)), str(len(y_test)))
+    )
+    return X_train, X_test, y_train, y_test
+
+
+async def train_model(device, X_train, X_test, y_train, y_test):
+    report_training_progress(
+        device=device,
+        status_code="training_started",
+        message="Starting to train the model"
+    )
+
+    accuracy, model, error = await threaded_train_model(X_train, X_test, y_train, y_test)
+
+    report_training_progress(
+        device=device,
+        status_code="training_finished",
+        message="The model training is finished, accuracy {}".format(str(accuracy))
+    )
+
+    return accuracy, model, error
 
 
 class ThresholdsBasedEstimator:
@@ -148,6 +199,18 @@ class Learn(EventBusSubscriber):
         self.recording_device = None
         self.learning_session = None
 
+    @subscribe(DeviceRemovedEvent)
+    def handle_device_removed(self, event):
+        if event.device == self.recording_device:
+            self.handle_stop_recording(None)
+            eventbus.post(StopRecordingSignalsEvent())
+
+    @subscribe(RoomRemovedEvent)
+    def handle_room_removed(self, event):
+        if event.room == self.recording_room:
+            self.handle_stop_recording(None)
+            eventbus.post(StopRecordingSignalsEvent())
+
     def is_learning_started(self, device):
         return self.recording_room and self.recording_device == device
 
@@ -158,43 +221,58 @@ class Learn(EventBusSubscriber):
 
         scanner = await Scanner.filter(uuid=event.scanner_uuid).first()
         if not scanner:
+            # TODO: notify the client about it somehow
             print('There is no scanner in the database with UUID: {}'.format(event.scanner_uuid))
             return
 
-        await DeviceSignal.create(
-            device_id=event.device.id,
-            room_id=self.recording_room.id,
-            learning_session_id=self.learning_session.id,
-            scanner_id=scanner.id,
+        signal_datetime = datetime.fromtimestamp(event.signal['when'])
+        device_signal = await DeviceSignal.create(
+            device=event.device,
+            room=self.recording_room,
+            learning_session=self.learning_session,
+            scanner=scanner,
             rssi=event.signal['rssi'],
-            created_at=event.signal['when'],
-            updated_at=event.signal['when'],
+            created_at=signal_datetime,
+            updated_at=signal_datetime,
         )
 
-        print('Learned signal from {}, {}'.format(event.scanner_uuid, event.signal['rssi']))
+        eventbus.post(LearntDeviceSignalEvent(device_signal=device_signal))
 
     @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):
         device = event.device
-        loop = asyncio.get_running_loop()
 
-        print('Training the model...')
+        report_training_progress(
+            device=device,
+            status_code="started",
+            message="Training of the model has been started"
+        )
+
         rooms, scanners = await get_rooms_scanners()
         inputs_hash = await calculate_inputs_hash(rooms, scanners)
-        signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
-
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            train_result = loop.run_in_executor(pool, train_model, signals)
-
-        accuracy, model, error = (await asyncio.gather(train_result))[0]
+        training_data = await prepare_training_data(device)
+        accuracy, model, error = await train_model(device, *training_data)
 
         if error is not None:
-            print('There is an error while fitting the model: ', error)
+            report_training_progress(
+                device=device,
+                status_code="failed",
+                is_final=True,
+                is_error=True,
+                message="Failed to train the model, reason: {}".format(str(error))
+            )
         else:
-            print('Training is done! Results: {}, {}, {}'.format(accuracy, model, error))
             result = await PredictionModel.create(
                 accuracy=accuracy,
                 model=pickle.dumps(model),
                 inputs_hash=inputs_hash,
             )
             await result.devices.add(device)
+
+            report_training_progress(
+                device=device,
+                status_code="success",
+                is_final=True,
+                prediction_model=result,
+                message="Successfully finished the prediction model creation"
+            )

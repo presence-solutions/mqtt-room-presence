@@ -1,3 +1,4 @@
+from server import config
 from server.events import DeviceAddedEvent, DeviceRemovedEvent, RoomAddedEvent, RoomRemovedEvent
 from server.eventbus import eventbus
 from tortoise.signals import Signals, post_delete, post_save
@@ -29,12 +30,11 @@ class DeviceSignal(Base, TimestampMixin):
     room = fields.ForeignKeyField('models.Room', related_name='signals')
     scanner = fields.ForeignKeyField('models.Scanner', related_name='signals')
     rssi = fields.FloatField(default=0)
-    filtered_rssi = fields.FloatField(default=0)
 
 
 class Device(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100)
+    uuid = fields.CharField(max_length=100, unique=True)
     use_name_as_id = fields.BooleanField(default=False)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
@@ -48,7 +48,7 @@ class Device(Base, TimestampMixin):
 
 
 class Room(Base, TimestampMixin):
-    name = fields.CharField(max_length=100)
+    name = fields.CharField(max_length=100, unique=True)
     scanners = fields.ManyToManyField(
         'models.Scanner', related_name='used_in_rooms', through='room_scanner')
 
@@ -58,9 +58,10 @@ class Room(Base, TimestampMixin):
 
 class Scanner(Base, TimestampMixin):
     name = fields.CharField(max_length=100)
-    uuid = fields.CharField(max_length=100, default='')
+    uuid = fields.CharField(max_length=100, default='', unique=True)
     display_name = fields.CharField(max_length=100, default='')
     latest_signal = fields.DatetimeField(null=True)
+    unknown = fields.BooleanField(default=False)
 
     class Meta:
         ordering = ["id"]
@@ -82,7 +83,7 @@ async def get_rooms_scanners():
     return rooms, scanners
 
 
-async def clear_rooms_scanners_cache(sender, instance, created, using_db, update_fields):
+async def clear_rooms_scanners_cache(sender, instance, created, using_db=None, update_fields=None):
     get_rooms_scanners.cache_clear()
 
 
@@ -112,10 +113,10 @@ async def emit_room_removed(sender, instance, using_db):
     eventbus.post(RoomRemovedEvent(room=instance))
 
 
-async def init_db(app):
-    await Tortoise.init(app['config'].TORTOISE_ORM)
+async def init_db():
+    await Tortoise.init(config.TORTOISE_ORM)
     await Tortoise.generate_schemas()
 
 
-async def close_db(app):
+async def close_db():
     await Tortoise.close_connections()
