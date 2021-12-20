@@ -79,7 +79,7 @@ class HeratbeatGenerator:
                 logging.info('%s scanner %s silent scanner penalty', repr(self.device), scanner)
 
             if self.turn_off_delay is not None and last_signal_delay >= self.turn_off_delay:
-                self.values[scanner] = -100
+                self.values[scanner] = self.filters[scanner].reset(-100.0)
                 self.last_change[scanner] = time
                 self.last_signal[scanner] = time
                 logging.info('%s scanner %s turn off penalty', repr(self.device), scanner)

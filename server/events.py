@@ -11,7 +11,7 @@ class DeviceSignalEvent(namedtuple(
 
 class LearntDeviceSignalEvent(namedtuple(
     'LearntDeviceSignalEvent',
-    'device_signal'
+    'device_signal, is_enough'
 )):
     log_level = logging.DEBUG
 
@@ -25,7 +25,7 @@ class HeartbeatEvent(namedtuple(
 
 class OccupancyEvent(namedtuple(
     'OccupancyEvent',
-    'device, room_occupancy, signals'
+    'device, room_occupancy, signals, prediction_model'
 )):
     log_level = logging.INFO
 

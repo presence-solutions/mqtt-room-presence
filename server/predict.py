@@ -9,7 +9,7 @@ from server.events import DeviceAddedEvent, DeviceRemovedEvent, HeartbeatEvent, 
 
 @run_in_executor
 def predict_presence(estimator, data_row):
-    return estimator.predict_proba(data_row)[0]
+    return estimator.predict(data_row)
 
 
 class Predict(EventBusSubscriber):
@@ -28,7 +28,7 @@ class Predict(EventBusSubscriber):
         if not model and event.device.id in self.prediction_models:
             del self.prediction_models[event.device.id]
         else:
-            self.prediction_models[event.device.id] = (pickle.loads(model.model), model.inputs_hash)
+            self.prediction_models[event.device.id] = (pickle.loads(model.model), model)
 
     @subscribe(DeviceRemovedEvent)
     def handle_device_removed(self, event):
@@ -49,13 +49,13 @@ class Predict(EventBusSubscriber):
             ))
             return
 
-        estimator, inputs_hash = self.prediction_models[event.device.id]
+        estimator, prediction_model = self.prediction_models[event.device.id]
         rooms, scanners = await get_rooms_scanners()
         curr_inputs_hash = await calculate_inputs_hash(rooms=rooms, scanners=scanners)
         rooms_map = dict((r.id, r) for r in rooms)
 
         # The inputs are different than expected by the model
-        if inputs_hash != curr_inputs_hash:
+        if prediction_model.inputs_hash != curr_inputs_hash:
             # TODO: rise some visible error for this
             return
 
@@ -74,4 +74,5 @@ class Predict(EventBusSubscriber):
             device=event.device,
             room_occupancy=result,
             signals=data.iloc[0].to_dict(),
+            prediction_model=prediction_model,
         ))

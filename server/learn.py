@@ -70,10 +70,10 @@ def threaded_prepare_training_data(signals):
                             delay_signals_history[s] += 1
                             if off_signals_history[s] > (TURN_OFF_DEVICE_SEC / signals_per_sec):
                                 off_signals_history[s] = 0
-                                filters[s].x = -100
+                                filters[s].reset(-100.0)
                             elif delay_signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
                                 delay_signals_history[s] = 0
-                                filters[s].filter(-100)
+                                filters[s].filter(-100.0)
 
                         if room_init:
                             result_data.append(data_row + [room])
@@ -92,7 +92,7 @@ def threaded_train_model(X, y):
         estimator = OneVsOneClassifier(Pipeline([
             ('select', SelectHighestMean()),
             ('scale', StandardScaler()),
-            ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
+            ('classification', RandomForestClassifier(n_estimators=10, class_weight='balanced', n_jobs=-1))
         ]), n_jobs=-1)
         estimator.fit(X, y)
         accuracy = metrics.recall_score(y, estimator.predict(X), average='micro')
@@ -152,10 +152,9 @@ class PresenceEstimator:
     def __init__(self, estimator) -> None:
         self.estimator = estimator
 
-    def predict_proba(self, data_row):
-        pred_result = list(zip(self.estimator.classes_, self.estimator.predict_proba(data_row)[0]))
-        max_pred_result = [max(pred_result, key=lambda x: x[1])]
-        return [dict(max_pred_result)]
+    def predict(self, data_row):
+        pred_result = self.estimator.predict(data_row)
+        return dict((r, 1) for r in pred_result)
 
 
 class SelectHighestMean(SelectorMixin, BaseEstimator):
@@ -184,12 +183,14 @@ class Learn(EventBusSubscriber):
         super().__init__()
         self.recording_room = None
         self.recording_device = None
+        self.learning_stats = {}
         self.learning_session = None
 
     @subscribe(StartRecordingSignalsEvent)
     async def handle_start_recording(self, event):
         self.recording_room = event.room
         self.recording_device = event.device
+        self.learning_stats = {}
         self.learning_session = await LearningSession.create(
             room_id=event.room.id, device_id=event.device.id)
 
@@ -197,6 +198,7 @@ class Learn(EventBusSubscriber):
     def handle_stop_recording(self, event):
         self.recording_room = None
         self.recording_device = None
+        self.learning_stats = {}
         self.learning_session = None
 
     @subscribe(DeviceRemovedEvent)
@@ -236,7 +238,14 @@ class Learn(EventBusSubscriber):
             updated_at=signal_datetime,
         )
 
-        eventbus.post(LearntDeviceSignalEvent(device_signal=device_signal))
+        _, scanners = await get_rooms_scanners()
+        scanner_signals = self.learning_stats.get(event.scanner_uuid, 0)
+        self.learning_stats[event.scanner_uuid] = scanner_signals + 1
+        scanners_to_wait = min(len(scanners), 3)
+        is_enough = sum(len(self.learning_stats[k]) >= 20 for k in self.learning_stats.keys()) >= scanners_to_wait
+        is_enough = is_enough or sum(len(self.learning_stats[k]) >= 100 for k in self.learning_stats.keys()) >= 1
+
+        eventbus.post(LearntDeviceSignalEvent(device_signal=device_signal, is_enough=is_enough))
 
     @subscribe(TrainPredictionModelEvent)
     async def handle_train_model(self, event):

@@ -66,13 +66,14 @@ class DeviceState:
                 'appeared_times': 0,
             }
 
-        # The state is not changed for X seconds/bets or is ON
+        # The state is not changed for X seconds/beats or is ON
         # – make the state as active
         elif room_state or all([
             current_maybe_state['last_state'] == room_state,
             (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS,
             current_maybe_state['appeared_times'] >= DEVICE_CHANGE_STATE_BEATS,
         ]):
+            current_maybe_state['last_state'] = room_state
             current_maybe_state['appeared_at'] = now_timestamp
             current_maybe_state['appeared_times'] = 0
             self.in_rooms[room_id] = room_state
