@@ -58,16 +58,17 @@ class DeviceState:
         self.maybe_in_rooms[room_id] = current_maybe_state
         current_maybe_state['appeared_times'] += 1
 
-        # State is different, start measuring the state staleness
-        if current_maybe_state['last_state'] != room_state:
+        # State is different and is OFF, start measuring the state staleness
+        if not room_state and current_maybe_state['last_state'] != room_state:
             self.maybe_in_rooms[room_id] = {
                 'last_state': room_state,
                 'appeared_at': now_timestamp,
                 'appeared_times': 0,
             }
 
-        # The state is not changed for X seconds – make the state as active
-        elif all([
+        # The state is not changed for X seconds/bets or is ON
+        # – make the state as active
+        elif room_state or all([
             current_maybe_state['last_state'] == room_state,
             (now_timestamp - current_maybe_state['appeared_at']) >= DEVICE_CHANGE_STATE_SECONDS,
             current_maybe_state['appeared_times'] >= DEVICE_CHANGE_STATE_BEATS,
