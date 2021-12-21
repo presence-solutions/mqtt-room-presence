@@ -177,10 +177,13 @@ class PresenceEstimator:
         self.thresholds = thresholds
 
     def predict(self, data_row):
-        pred_result = list(zip(self.estimator.classes_, self.estimator.decision_function(data_row)[0]))
-        max_pred_result = max(pred_result, key=lambda x: x[1])
-        pred_result = [r for r in pred_result if r[1] >= self.thresholds[r[0]]]
-        pred_result = [max_pred_result] if not pred_result else pred_result
+        prediction = self.estimator.decision_function(data_row)[0]
+        prediction_classes = np.array(list(zip(self.estimator.classes_, prediction)))
+
+        max_pred_result = prediction_classes[np.argsort(prediction)[-3:]]
+        pred_result = [r for r in prediction_classes if r[1] >= self.thresholds[r[0]]]
+        pred_result = max_pred_result if not pred_result else pred_result
+
         return dict(pred_result)
 
 
