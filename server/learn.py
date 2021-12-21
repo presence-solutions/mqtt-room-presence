@@ -10,6 +10,7 @@ from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OF
 from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
+from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsOneClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
@@ -23,6 +24,27 @@ from server.events import (
     StopRecordingSignalsEvent, TrainPredictionModelEvent, TrainingProgressEvent)
 from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
+
+
+def calculate_best_thresholds(estimator, X, y):
+    pred_probas = estimator.decision_function(X)
+    sorted_rooms = estimator.classes_
+    pred_probas_df = pd.DataFrame(
+        [dict(list(zip(sorted_rooms, r)) + [('_room', y[i])]) for i, r in enumerate(pred_probas)]).dropna()
+    room_thresholds = {}
+    scores = []
+
+    for _, room in enumerate(sorted_rooms):
+        y_true = [1 if x else 0 for x in pred_probas_df['_room'] == room]
+        y_pred = list(pred_probas_df[room])
+        precision, recall, thresholds = metrics.precision_recall_curve(y_true, y_pred)
+        ix = np.argmax(recall)
+        room_thresholds[room] = thresholds[ix]
+        scores.append(recall[ix])
+        print('%s - Best Threshold=%f, Precision=%.3f, Recall=%.3f' % (
+            room, thresholds[ix], precision[ix], recall[ix]))
+
+    return room_thresholds, np.mean(scores)
 
 
 @run_in_executor
@@ -47,23 +69,23 @@ def threaded_prepare_training_data(signals):
     delay_signals_history = dict([(s, 0) for s in sorted_scanners])
     result_data = []
 
-    for _ in range(10):
+    for _ in range(len(sorted_rooms) * 2):
         for room in np.random.choice(sorted_rooms, len(sorted_rooms), replace=False):
             room_init = False
             seconds_passed = 0
             positions = used_data_df[used_data_df['room'] == room]['position'].unique()
-            for _ in range(3):
+            for _ in range(len(positions) * 2):
                 for position in np.random.choice(positions, len(positions), replace=False):
                     signals_per_sec = session_dur_df.loc[(room, position), 'frequency']
                     signals = used_data_df[(used_data_df['room'] == room) & (used_data_df['position'] == position)]
-                    signals = signals.sample(n=min(len(signals), 300), replace=True)
+                    signals = signals.sample(n=min(len(signals), 100), replace=True)
 
                     for _, row in signals.iterrows():
                         seconds_passed += 1 / signals_per_sec
                         off_signals_history[row['scanner']] = 0
                         delay_signals_history[row['scanner']] = 0
                         filters[row['scanner']].filter(row['rssi'])
-                        data_row = [np.round(filters[s].lastMeasurement() or -100, decimals=1) for s in sorted_scanners]
+                        data_row = [np.round(filters[s].lastMeasurement() or -100) for s in sorted_scanners]
 
                         for s in sorted_scanners:
                             off_signals_history[s] += 1
@@ -89,14 +111,15 @@ def threaded_prepare_training_data(signals):
 @run_in_executor
 def threaded_train_model(X, y):
     try:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42, test_size=0.5)
         estimator = OneVsOneClassifier(Pipeline([
             ('select', SelectHighestMean()),
             ('scale', StandardScaler()),
-            ('classification', RandomForestClassifier(n_estimators=10, class_weight='balanced', n_jobs=-1))
+            ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
         ]), n_jobs=-1)
-        estimator.fit(X, y)
-        accuracy = metrics.recall_score(y, estimator.predict(X), average='micro')
-        estimator = PresenceEstimator(estimator)
+        estimator.fit(X_train, y_train)
+        room_thresholds, accuracy = calculate_best_thresholds(estimator, X_test, y_test)
+        estimator = PresenceEstimator(estimator, room_thresholds)
     except Exception as e:
         return 0, None, e
 
@@ -149,12 +172,16 @@ async def train_model(device, X, y):
 
 
 class PresenceEstimator:
-    def __init__(self, estimator) -> None:
+    def __init__(self, estimator, thresholds) -> None:
         self.estimator = estimator
+        self.thresholds = thresholds
 
     def predict(self, data_row):
-        pred_result = self.estimator.predict(data_row)
-        return dict((r, 1) for r in pred_result)
+        pred_result = list(zip(self.estimator.classes_, self.estimator.decision_function(data_row)[0]))
+        max_pred_result = max(pred_result, key=lambda x: x[1])
+        pred_result = [r for r in pred_result if r[1] >= self.thresholds[r[0]]]
+        pred_result = [max_pred_result] if not pred_result else pred_result
+        return dict(pred_result)
 
 
 class SelectHighestMean(SelectorMixin, BaseEstimator):
