@@ -10,7 +10,7 @@ type Props = {
   icon?: React.ReactElement
 };
 
-export default function SideBarLink({ to, text, icon }: Props) {
+const SideBarLink: React.VFC<Props> = ({ to, text, icon }: Props) => {
   const resolved = useResolvedPath(to);
   const match = useMatch({ path: resolved.pathname, end: true });
 
@@ -24,4 +24,6 @@ export default function SideBarLink({ to, text, icon }: Props) {
       <ListItemText primary={text} />
     </ListItemButton>
   );
-}
+};
+
+export default SideBarLink;

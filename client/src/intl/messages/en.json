@@ -1,4 +1,5 @@
 {
+  "App_Title": "Room Presence",
   "HomePage_RoomsLink": "Rooms",
   "HomePage_DevicesLink": "Devices",
   "HomePage_ScannersLink": "Scanners",
@@ -11,9 +12,14 @@
   "RoomsModal_EditTitle": "Edit room",
   "RoomsModal_NameFieldLabel": "Name",
   "RoomsModal_NameFieldPlaceholder": "Enter name",
+  "GlobalError_Title": "An error has occured",
+  "Error_Type": "Error type:",
+  "Error_Details": "Error details:",
   "NotFoundPage_Message": "Page not found.",
   "Validation_Required": "Required field",
   "Button_Add": "Add",
   "Button_Save": "Save",
-  "Button_Cancel": "Cancel"
+  "Button_Cancel": "Cancel",
+  "Button_Close": "Close",
+  "Button_Loading": "Loading..."
 }

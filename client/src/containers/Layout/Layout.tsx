@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Outlet } from 'react-router-dom';
 import CssBaseline from '@mui/material/CssBaseline';
 import Box from '@mui/material/Box';
@@ -6,40 +6,44 @@ import Container from '@mui/material/Container';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
 
-import { useAppDispatch } from '../../store/hooks';
+import { useFormatMessage } from '../../intl/helpers';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { setTheme } from '../../store/slices/commonSlice';
 import { ThemeType } from '../../types/common';
+import GlobalErrorModal from '../../containers/GlobalErrorModal/GlobalErrorModal';
 import ThemeSwitch from '../../components/ThemeSwitch/ThemeSwitch';
 
-type Props = {
-  theme: ThemeType
-};
+type Props = {};
 
-const appTitle = 'Room Presence';
-
-export default function Layout({ theme }: Props) {
+const Layout: React.FC<Props> = (props) => {
+  const fm = useFormatMessage();
   const dispatch = useAppDispatch();
+  const { theme } = useAppSelector((state) => state.common);
+
+  const themeConfig = useMemo(() => createTheme({
+    palette: { mode: theme }
+  }), [theme]);
 
   const onThemeSwitchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     dispatch(setTheme(e.target.checked ? ThemeType.dark : ThemeType.light));
   }, [dispatch]);
 
   return (
-    <>
+    <ThemeProvider theme={themeConfig}>
       <CssBaseline />
 
       <AppBar position='fixed'>
         <Container maxWidth='xl'>
           <Toolbar disableGutters>
             <Typography variant='h6' component='div' sx={{ flexGrow: 1 }}>
-              {appTitle}
+              {fm('App_Title')}
             </Typography>
 
             <ThemeSwitch
               checked={theme === ThemeType.dark}
-              onChange={onThemeSwitchChange}
-            />
+              onChange={onThemeSwitchChange} />
           </Toolbar>
         </Container>
       </AppBar>
@@ -51,6 +55,10 @@ export default function Layout({ theme }: Props) {
           <Outlet />
         </Container>
       </Box>
-    </>
+
+      <GlobalErrorModal />
+    </ThemeProvider>
   );
-}
+};
+
+export default Layout;

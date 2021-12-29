@@ -1,13 +1,11 @@
 import Typography from '@mui/material/Typography';
 
-type Props = {
-  children: React.ReactNode
-};
+type Props = {};
 
-export default function PageTitle({ children }: Props) {
-  return (
-    <Typography variant='h4' component='h2' align='center' sx={{ mt: { md: 1 } }}>
-      {children}
-    </Typography>
-  );
-}
+const PageTitle: React.FC<Props> = ({ children }) => (
+  <Typography variant='h4' component='h2' align='center' sx={{ mt: { md: 1 } }}>
+    {children}
+  </Typography>
+);
+
+export default PageTitle;

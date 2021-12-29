@@ -1,24 +1,27 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { BrowserRouter } from 'react-router-dom';
-import { Provider } from 'react-redux';
-import { QueryClient, QueryClientProvider } from 'react-query';
+import { Provider as ReduxProvider } from 'react-redux';
 
-// import reportWebVitals from './reportWebVitals';
 import { store } from './store/store';
 import App from './containers/App/App';
+// import reportWebVitals from './reportWebVitals';
 
-const queryClient = new QueryClient();
+import { createClient, Provider as UrqlProvider } from 'urql';
+
+const urqlClient = createClient({
+  url: process.env.REACT_APP_GRAPHQL_URI!
+});
 
 ReactDOM.render(
   <React.StrictMode>
-    <Provider store={store}>
+    <ReduxProvider store={store}>
       <BrowserRouter>
-        <QueryClientProvider client={queryClient}>
+        <UrqlProvider value={urqlClient}>
           <App />
-        </QueryClientProvider>
+        </UrqlProvider>
       </BrowserRouter>
-    </Provider>
+    </ReduxProvider>
   </React.StrictMode >,
   document.getElementById('root')
 );
