@@ -305,6 +305,32 @@ export type UpdateScannerInput = {
   uuid: Scalars['String'];
 };
 
+export type GetAllDevicesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetAllDevicesQuery = { __typename?: 'Query', allDevices: Array<{ __typename?: 'Device', id: string, uuid?: string | null | undefined, name?: string | null | undefined }> };
+
+export type AddDeviceMutationVariables = Exact<{
+  newDevice: NewDeviceInput;
+}>;
+
+
+export type AddDeviceMutation = { __typename?: 'Mutation', addDevice: { __typename?: 'DeviceCreateResult', device?: { __typename?: 'Device', id: string, name?: string | null | undefined, uuid?: string | null | undefined } | null | undefined } };
+
+export type UpdateDeviceMutationVariables = Exact<{
+  device: UpdateDeviceInput;
+}>;
+
+
+export type UpdateDeviceMutation = { __typename?: 'Mutation', updateDevice: { __typename?: 'DeviceUpdateResult', device?: { __typename?: 'Device', id: string, name?: string | null | undefined, uuid?: string | null | undefined } | null | undefined } };
+
+export type RemoveDeviceMutationVariables = Exact<{
+  deviceId: Scalars['ID'];
+}>;
+
+
+export type RemoveDeviceMutation = { __typename?: 'Mutation', removeDevice?: { __typename?: 'Device', id: string } | null | undefined };
+
 export type GetAllRoomsQueryVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -332,6 +358,60 @@ export type RemoveRoomMutationVariables = Exact<{
 export type RemoveRoomMutation = { __typename?: 'Mutation', removeRoom?: { __typename?: 'Room', id: string } | null | undefined };
 
 
+export const GetAllDevicesDocument = gql`
+    query GetAllDevices {
+  allDevices {
+    id
+    uuid
+    name
+  }
+}
+    `;
+
+export function useGetAllDevicesQuery(options: Omit<Urql.UseQueryArgs<GetAllDevicesQueryVariables>, 'query'> = {}) {
+  return Urql.useQuery<GetAllDevicesQuery>({ query: GetAllDevicesDocument, ...options });
+};
+export const AddDeviceDocument = gql`
+    mutation AddDevice($newDevice: NewDeviceInput!) {
+  addDevice(input: $newDevice) {
+    device {
+      id
+      name
+      uuid
+    }
+  }
+}
+    `;
+
+export function useAddDeviceMutation() {
+  return Urql.useMutation<AddDeviceMutation, AddDeviceMutationVariables>(AddDeviceDocument);
+};
+export const UpdateDeviceDocument = gql`
+    mutation UpdateDevice($device: UpdateDeviceInput!) {
+  updateDevice(input: $device) {
+    device {
+      id
+      name
+      uuid
+    }
+  }
+}
+    `;
+
+export function useUpdateDeviceMutation() {
+  return Urql.useMutation<UpdateDeviceMutation, UpdateDeviceMutationVariables>(UpdateDeviceDocument);
+};
+export const RemoveDeviceDocument = gql`
+    mutation RemoveDevice($deviceId: ID!) {
+  removeDevice(id: $deviceId) {
+    id
+  }
+}
+    `;
+
+export function useRemoveDeviceMutation() {
+  return Urql.useMutation<RemoveDeviceMutation, RemoveDeviceMutationVariables>(RemoveDeviceDocument);
+};
 export const GetAllRoomsDocument = gql`
     query GetAllRooms {
   allRooms {

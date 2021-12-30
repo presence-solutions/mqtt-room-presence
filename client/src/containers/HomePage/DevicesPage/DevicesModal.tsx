@@ -17,35 +17,37 @@ import { useFormatMessage } from '../../../intl/helpers';
 type Props = {
   open: boolean,
   mode: 'add' | 'edit',
-  roomId: string | null,
+  deviceId: string | null,
   initialValues: {
-    roomName: string
+    deviceName: string,
+    deviceUuid: string
   },
   onClose: () => void,
-  onAddRoom: (name: string) => void,
-  onEditRoom: (id: string, name: string) => void,
-  deleteRoom: (id: string) => void
+  onAddDevice: (name: string, uuid: string) => void,
+  onEditDevice: (id: string, name: string, uuid: string) => void,
+  deleteDevice: (id: string) => void
 };
 
-const RoomsModal: React.VFC<Props> = ({
+const DevicesModal: React.VFC<Props> = ({
   open,
   mode,
-  roomId,
+  deviceId,
   initialValues,
   onClose,
-  onAddRoom,
-  onEditRoom,
-  deleteRoom
+  onAddDevice,
+  onEditDevice,
+  deleteDevice
 }: Props) => {
   const fm = useFormatMessage();
 
   const [loading, setLoading] = useState(false);
 
-  const title = mode === 'add' ? fm('RoomsModal_AddTitle') : fm('RoomsModal_EditTitle');
+  const title = mode === 'add' ? fm('DevicesModal_AddTitle') : fm('DevicesModal_EditTitle');
   const submitButtonText = mode === 'add' ? fm('Button_Add') : fm('Button_Save');
 
   const validationSchema = yup.object({
-    roomName: yup.string().required(fm('Validation_Required'))
+    deviceName: yup.string().required(fm('Validation_Required')),
+    deviceUuid: yup.string().required(fm('Validation_Required'))
   });
 
   const formik = useFormik({
@@ -56,9 +58,9 @@ const RoomsModal: React.VFC<Props> = ({
       setLoading(true);
 
       if (mode === 'add') {
-        onAddRoom(values.roomName);
-      } else if (roomId !== null) {
-        onEditRoom(roomId, values.roomName);
+        onAddDevice(values.deviceName, values.deviceUuid);
+      } else if (deviceId !== null) {
+        onEditDevice(deviceId, values.deviceName, values.deviceUuid);
       }
     }
   });
@@ -71,10 +73,10 @@ const RoomsModal: React.VFC<Props> = ({
     }
   }, [open]);
 
-  const onDeleteRoomClick = () => {
-    if (roomId) {
+  const onDeleteDeviceClick = () => {
+    if (deviceId) {
       setLoading(true);
-      deleteRoom(roomId);
+      deleteDevice(deviceId);
     }
   };
 
@@ -86,13 +88,27 @@ const RoomsModal: React.VFC<Props> = ({
         <DialogContent sx={{ py: 0 }}>
           <Box sx={{ py: 1 }}>
             <TextField
-              name='roomName'
+              name='deviceName'
               type='text'
-              label={fm('RoomsModal_NameFieldLabel')}
-              placeholder={fm('RoomsModal_NameFieldPlaceholder')}
-              value={formik.values.roomName}
-              error={formik.touched.roomName && Boolean(formik.errors.roomName)}
-              helperText={formik.touched.roomName && formik.errors.roomName}
+              label={fm('DevicesModal_NameFieldLabel')}
+              placeholder={fm('DevicesModal_NameFieldPlaceholder')}
+              value={formik.values.deviceName}
+              error={formik.touched.deviceName && Boolean(formik.errors.deviceName)}
+              helperText={formik.touched.deviceName && formik.errors.deviceName}
+              onChange={formik.handleChange}
+              variant='outlined'
+              fullWidth
+              autoFocus />
+
+            <TextField
+              sx={{ mt: 2 }}
+              name='deviceUuid'
+              type='text'
+              label={fm('DevicesModal_UuidFieldLabel')}
+              placeholder={fm('DevicesModal_UuidFieldPlaceholder')}
+              value={formik.values.deviceUuid}
+              error={formik.touched.deviceUuid && Boolean(formik.errors.deviceUuid)}
+              helperText={formik.touched.deviceUuid && formik.errors.deviceUuid}
               onChange={formik.handleChange}
               variant='outlined'
               fullWidth
@@ -101,11 +117,11 @@ const RoomsModal: React.VFC<Props> = ({
         </DialogContent>
 
         <DialogActions sx={{ px: 3 }}>
-          {mode === 'edit' && roomId !== null && (
+          {mode === 'edit' && deviceId !== null && (
             <IconButton
               sx={{ mr: 'auto' }}
               disabled={loading}
-              onClick={onDeleteRoomClick}>
+              onClick={onDeleteDeviceClick}>
               <DeleteIcon />
             </IconButton>
           )}
@@ -117,4 +133,4 @@ const RoomsModal: React.VFC<Props> = ({
   );
 };
 
-export default RoomsModal;
+export default DevicesModal;

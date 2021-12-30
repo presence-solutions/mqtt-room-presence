@@ -15,90 +15,96 @@ import AddIcon from '@mui/icons-material/Add';
 
 import { useFormatMessage } from '../../../intl/helpers';
 import {
-  useGetAllRoomsQuery,
-  useAddRoomMutation,
-  useUpdateRoomMutation,
-  useRemoveRoomMutation
+  useGetAllDevicesQuery,
+  useAddDeviceMutation,
+  useUpdateDeviceMutation,
+  useRemoveDeviceMutation
 } from '../../../generated/graphql';
 import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
 import { parseGlobalError } from '../../../lib/parsers/globalError';
 import { sortArrayByStringId } from '../../../lib/sorters/common';
 import PageTitle from '../../../components/PageTitle/PageTitle';
-import RoomsModal from './RoomsModal';
+import DevicesModal from './DevicesModal';
 
-type RoomsModalState = {
+type DevicesModalState = {
   open: boolean,
   mode: 'add' | 'edit',
-  roomId: string | null,
+  deviceId: string | null,
   initialValues: {
-    roomName: string
+    deviceName: string,
+    deviceUuid: string
   }
 };
 
 type Props = {};
 
-const defaultModalState: RoomsModalState = {
+const defaultModalState: DevicesModalState = {
   open: false,
   mode: 'add',
-  roomId: null,
+  deviceId: null,
   initialValues: {
-    roomName: ''
+    deviceName: '',
+    deviceUuid: ''
   }
 };
 
-const RoomsPage: React.VFC<Props> = () => {
+const DevicesPage: React.VFC<Props> = () => {
   const dispatch = useAppDispatch();
   const fm = useFormatMessage();
 
-  const [modalState, setModalState] = useState<RoomsModalState>({ ...defaultModalState });
+  const [modalState, setModalState] = useState<DevicesModalState>({ ...defaultModalState });
 
-  const [roomsResult] = useGetAllRoomsQuery();
-  const [addRoomResult, addRoom] = useAddRoomMutation();
-  const [updateRoomResult, updateRoom] = useUpdateRoomMutation();
-  const [removeRoomResult, removeRoom] = useRemoveRoomMutation();
+  const [devicesResult] = useGetAllDevicesQuery();
+  const [addDeviceResult, addDevice] = useAddDeviceMutation();
+  const [updateDeviceResult, updateDevice] = useUpdateDeviceMutation();
+  const [removeDeviceResult, removeDevice] = useRemoveDeviceMutation();
 
-  const rooms = useMemo(() => {
-    return roomsResult.data ? sortArrayByStringId(roomsResult.data.allRooms) : [];
-  }, [roomsResult.data]);
+  const devices = useMemo(() => {
+    return devicesResult.data ? sortArrayByStringId(devicesResult.data.allDevices) : [];
+  }, [devicesResult.data]);
 
-  const showSpinner = roomsResult.fetching && rooms.length === 0;
+  const showSpinner = devicesResult.fetching && devices.length === 0;
 
   const showGlobalError = (e: Error) => {
     dispatch(setGlobalError(parseGlobalError(e)));
   };
 
   useEffect(() => {
-    if (roomsResult.error) {
-      showGlobalError(roomsResult.error);
+    if (devicesResult.error) {
+      showGlobalError(devicesResult.error);
     }
   });
 
-  const onAddRoomClick = () => {
+  const onAddDeviceClick = () => {
     setModalState({
       ...defaultModalState,
       open: true
     });
   };
 
-  const onEditRoomClick = (roomId: string) => {
-    const room = rooms.find(r => r.id === roomId);
+  const onEditDeviceClick = (deviceId: string) => {
+    const device = devices.find(r => r.id === deviceId);
 
-    if (room) {
+    if (device) {
       setModalState({
         open: true,
         mode: 'edit',
-        roomId,
+        deviceId,
         initialValues: {
-          roomName: room.name || ''
+          deviceName: device.name || '',
+          deviceUuid: device.uuid || ''
         }
       });
     }
   };
 
-  const onAddRoom = (name: string) => {
-    addRoom({
-      newRoom: { name }
+  const onAddDevice = (name: string, uuid: string) => {
+    addDevice({
+      newDevice: {
+        name,
+        uuid
+      }
     }).then((result) => {
       closeModal();
 
@@ -108,17 +114,15 @@ const RoomsPage: React.VFC<Props> = () => {
     });
   };
 
-  const onEditRoom = (id: string, name: string) => {
-    const room = rooms.find(r => r.id === id);
+  const onEditDevice = (id: string, name: string, uuid: string) => {
+    const device = devices.find(d => d.id === id);
 
-    if (room) {
-      const scanners = room.scanners ? room.scanners.map(scanner => scanner.id!) : [];
-
-      updateRoom({
-        room: {
+    if (device) {
+      updateDevice({
+        device: {
           id,
           name,
-          scanners
+          uuid
         }
       }).then((result) => {
         closeModal();
@@ -130,9 +134,9 @@ const RoomsPage: React.VFC<Props> = () => {
     }
   };
 
-  const deleteRoom = (id: string) => {
-    removeRoom({
-      roomId: id
+  const deleteDevice = (id: string) => {
+    removeDevice({
+      deviceId: id
     }).then((result) => {
       closeModal();
 
@@ -151,21 +155,22 @@ const RoomsPage: React.VFC<Props> = () => {
 
   return (
     <div>
-      <PageTitle>{fm('RoomsPage_Title')}</PageTitle>
+      <PageTitle>{fm('DevicesPage_Title')}</PageTitle>
 
       <Box sx={{ px: { md: 8 }, mt: 2 }}>
         <TableContainer component={Paper}>
-          <Table aria-label='rooms list' sx={{ borderCollapse: 'separate' }}>
+          <Table aria-label='devices list' sx={{ borderCollapse: 'separate' }}>
             <TableHead>
               <TableRow>
-                <TableCell>{fm('RoomsPage_IdColumn')}</TableCell>
-                <TableCell>{fm('RoomsPage_NameColumn')}</TableCell>
+                <TableCell>{fm('DevicesPage_IdColumn')}</TableCell>
+                <TableCell>{fm('DevicesPage_NameColumn')}</TableCell>
+                <TableCell>{fm('DevicesPage_UuidColumn')}</TableCell>
                 <TableCell align='center' sx={{ p: 0 }}>
-                  <Tooltip title={fm('RoomsPage_AddRoomTooltip')} placement='top'>
+                  <Tooltip title={fm('DevicesPage_AddDeviceTooltip')} placement='top'>
                     <IconButton
-                      aria-label='add room'
+                      aria-label='add device'
                       sx={{ '&:hover': { cursor: 'pointer' } }}
-                      onClick={onAddRoomClick}>
+                      onClick={onAddDeviceClick}>
                       <AddIcon />
                     </IconButton>
                   </Tooltip>
@@ -174,16 +179,17 @@ const RoomsPage: React.VFC<Props> = () => {
             </TableHead>
 
             <TableBody>
-              {rooms.map(room => (
-                <TableRow key={room.id} hover>
-                  <TableCell>{room.id}</TableCell>
-                  <TableCell>{room.name}</TableCell>
+              {devices.map(device => (
+                <TableRow key={device.id} hover>
+                  <TableCell>{device.id}</TableCell>
+                  <TableCell>{device.name}</TableCell>
+                  <TableCell>{device.uuid}</TableCell>
                   <TableCell align='center' sx={{ p: 0 }}>
-                    <Tooltip title={fm('RoomsPage_EditRoomTooltip')} placement='top'>
+                    <Tooltip title={fm('DevicesPage_EditDeviceTooltip')} placement='top'>
                       <IconButton
-                        aria-label='edit room'
+                        aria-label='edit device'
                         sx={{ '&:hover': { cursor: 'pointer' } }}
-                        onClick={() => { onEditRoomClick(room.id); }}>
+                        onClick={() => { onEditDeviceClick(device.id); }}>
                         <EditIcon />
                       </IconButton>
                     </Tooltip>
@@ -201,14 +207,14 @@ const RoomsPage: React.VFC<Props> = () => {
         )}
       </Box>
 
-      <RoomsModal
+      <DevicesModal
         {...modalState}
         onClose={closeModal}
-        onAddRoom={onAddRoom}
-        onEditRoom={onEditRoom}
-        deleteRoom={deleteRoom} />
+        onAddDevice={onAddDevice}
+        onEditDevice={onEditDevice}
+        deleteDevice={deleteDevice} />
     </div>
   );
 };
 
-export default RoomsPage;
+export default DevicesPage;

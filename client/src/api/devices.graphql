@@ -1,0 +1,33 @@
+query GetAllDevices {
+  allDevices {
+    id,
+    uuid,
+    name
+  }
+}
+
+mutation AddDevice($newDevice: NewDeviceInput!) {
+  addDevice(input: $newDevice) {
+		device {
+      id,
+      name,
+      uuid
+    }
+  }
+}
+
+mutation UpdateDevice($device: UpdateDeviceInput!) {
+  updateDevice(input: $device) {
+    device {
+      id,
+      name,
+      uuid
+    }
+  }
+}
+
+mutation RemoveDevice($deviceId: ID!) {
+  removeDevice(id: $deviceId) {
+    id
+  }
+}

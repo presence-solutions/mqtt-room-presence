@@ -6,7 +6,7 @@ import { defaultLocale } from '../../lib/constants/common';
 import Layout from '../Layout/Layout';
 import HomePage from '../HomePage/HomePage';
 import RoomsPage from '../HomePage/RoomsPage/RoomsPage';
-import DevicesPage from '../HomePage/DevicesPage';
+import DevicesPage from '../HomePage/DevicesPage/DevicesPage';
 import ScannersPage from '../HomePage/ScannersPage';
 import NotFoundPage from '../NotFoundPage/NotFoundPage';
 
