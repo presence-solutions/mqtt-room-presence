@@ -32,7 +32,8 @@ class Predict(EventBusSubscriber):
 
     @subscribe(DeviceRemovedEvent)
     def handle_device_removed(self, event):
-        del self.prediction_models[event.device.id]
+        if event.device.id in self.prediction_models:
+            del self.prediction_models[event.device.id]
 
     @subscribe(HeartbeatEvent)
     async def handle_device_heartbeat(self, event):
