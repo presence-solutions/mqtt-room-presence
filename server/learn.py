@@ -4,9 +4,9 @@ import pickle
 import pandas as pd
 import numpy as np
 from server.eventbus import eventbus
-from server.kalman import KalmanRSSI
+# from server.kalman import KalmanRSSI
 from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OFF_DEVICE_SEC
-
+from server.heartbeat import HeratbeatGenerator
 from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
@@ -14,8 +14,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.multiclass import OneVsOneClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.feature_selection import SelectorMixin
+from sklearn.feature_selection import SelectorMixin, SelectFromModel
 from sklearn.base import BaseEstimator
 
 from server.eventbus import EventBusSubscriber, subscribe
@@ -27,6 +28,12 @@ from server.models import (
 
 
 def calculate_best_thresholds(estimator, X, y):
+    """
+    All we need is recall
+    TA-TA Ta-da-da...
+    All we need is recall, recall...
+    Recall is all we need
+    """
     pred_probas = estimator.decision_function(X)
     sorted_rooms = estimator.classes_
     pred_probas_df = pd.DataFrame(
@@ -47,75 +54,114 @@ def calculate_best_thresholds(estimator, X, y):
     return room_thresholds, np.mean(scores)
 
 
+def select_random_delay(signal_row, rssi_bin_scanner_data):
+    try:
+        return rssi_bin_scanner_data.loc[(signal_row['scanner'], signal_row['rssi_bin']), 'delay'].sample(n=1)[0]
+    except KeyError:
+        return 5.0
+
+
+def upscale_signals_data(data_df):
+    data_df = data_df.copy().sort_values('when_ts')
+    data_df['rssi_bin'] = pd.cut(data_df['rssi'], np.arange(-100, 0, 5))
+    data_df['delay'] = data_df.groupby(['position', 'scanner'], as_index=False)['when_ts'].rolling(window=2).apply(
+        lambda x: x.iloc[1] - x.iloc[0])['when_ts']
+    data_df['delay'].fillna(0, inplace=True)
+
+    upscaled_data_df = []
+    rssi_bins_data_df = data_df.loc[data_df['delay'] > 0].copy().set_index(['scanner', 'rssi_bin']).sort_index()
+    data_df = data_df.set_index('position').sort_index().sort_values('when_ts')
+
+    for pos in data_df.index.unique():
+        pos_df = data_df.loc[pos].reset_index()
+        new_session_time = pos_df['when_ts'].max()
+        session_dur = pos_df['when_ts'].max() - pos_df['when_ts'].min()
+        upscaled_data_df.append(pos_df)
+        rounds_to_gen = int(np.ceil((TURN_OFF_DEVICE_SEC * 10) / session_dur))
+
+        for i in range(rounds_to_gen):
+            sampled_df = pos_df.sample(n=int(len(pos_df) * 0.8), replace=False, ignore_index=True)
+            sampled_df['delay'] = sampled_df.apply(select_random_delay, axis=1, args=(rssi_bins_data_df,))
+            sampled_df['when_ts'] = sampled_df.groupby('scanner')['delay'].transform(pd.Series.cumsum)
+            sampled_df['when_ts'] += new_session_time
+            sampled_df['position'] = pos
+            new_session_time = sampled_df['when_ts'].max()
+            upscaled_data_df.append(sampled_df)
+
+    upscaled_data_df = pd.concat(upscaled_data_df).reset_index()
+    upscaled_data_df['delay'] = upscaled_data_df\
+        .groupby(['position', 'scanner'], as_index=False)['when_ts'].rolling(window=2)\
+        .apply(lambda x: x.iloc[1] - x.iloc[0])['when_ts']
+    upscaled_data_df['delay'].fillna(0, inplace=True)
+
+    return upscaled_data_df.sort_values('when_ts')
+
+
 @run_in_executor
 def threaded_prepare_training_data(signals):
-    used_data_df = pd.DataFrame([{
+    data_df = upscale_signals_data(pd.DataFrame([{
         'rssi': x.rssi,
         'scanner': x.scanner.id,
         'room': x.room.id,
-        'when': np.datetime64(x.created_at),
-        'position': x.learning_session.id,
-    } for x in signals])
+        'when_ts': x.created_at.timestamp(),
+        'position': str(x.learning_session.id),
+    } for x in signals]))
 
-    sorted_rooms = sorted(used_data_df['room'].unique())
-    sorted_scanners = sorted(used_data_df['scanner'].unique())
-    session_dur_df = used_data_df.groupby(['room', 'position'])\
-        .agg(when_min=('when', 'min'), when_max=('when', 'max'), signals=('when', 'count'))
-    session_dur_df['when_diff'] = np.round(
-        (session_dur_df['when_max'] - session_dur_df['when_min']) / np.timedelta64(1, 's'))
-    session_dur_df['frequency'] = session_dur_df['signals'] / session_dur_df['when_diff']
-    filters = dict([(s, KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q)) for s in sorted_scanners])
-    off_signals_history = dict([(s, 0) for s in sorted_scanners])
-    delay_signals_history = dict([(s, 0) for s in sorted_scanners])
+    gen = HeratbeatGenerator(
+        long_delay=LONG_DELAY_PENALTY_SEC, turn_off_delay=TURN_OFF_DEVICE_SEC,
+        kalman=(KALMAN_R, KALMAN_Q), device=None, logging=False)
+
+    positions = data_df['position'].unique()
+    scanners = data_df['scanner'].unique()
+    data_df = data_df.set_index('position').sort_index().sort_values('when_ts')
+    default_heartbeat = dict(zip(scanners, [-100] * len(scanners)))
     result_data = []
+    time_shift = 0
+    last_processed_time = None
 
-    for _ in range(len(sorted_rooms) * 2):
-        for room in np.random.choice(sorted_rooms, len(sorted_rooms), replace=False):
-            room_init = False
-            seconds_passed = 0
-            positions = used_data_df[used_data_df['room'] == room]['position'].unique()
-            for _ in range(len(positions) * 2):
-                for position in np.random.choice(positions, len(positions), replace=False):
-                    signals_per_sec = session_dur_df.loc[(room, position), 'frequency']
-                    signals = used_data_df[(used_data_df['room'] == room) & (used_data_df['position'] == position)]
-                    signals = signals.sample(n=min(len(signals), 100), replace=True)
+    for _ in range(5):
+        prev_room = None
+        room_init = False
+        seconds_passed = 0
+        for position in np.random.choice(positions, len(positions), replace=False):
+            signals_df = data_df.loc[position].reset_index()
+            first_signal = signals_df.iloc[0]
+            room = first_signal['room']
+            room_init = room == prev_room
+            prev_room = room
+            time_shift = last_processed_time - first_signal['when_ts'] if last_processed_time else time_shift
+            curr_time = first_signal['when_ts'] + time_shift
 
-                    for _, row in signals.iterrows():
-                        seconds_passed += 1 / signals_per_sec
-                        off_signals_history[row['scanner']] = 0
-                        delay_signals_history[row['scanner']] = 0
-                        filters[row['scanner']].filter(row['rssi'])
-                        data_row = [np.round(filters[s].lastMeasurement() or -100) for s in sorted_scanners]
+            for _, row in signals_df.iterrows():
+                seconds_passed += row['when_ts'] + time_shift - curr_time
+                curr_time = row['when_ts'] + time_shift
+                next_signals = gen.process(
+                    [{'rssi': row['rssi'], 'when': curr_time, 'scanner': row['scanner']}], curr_time)
+                data_row = pd.Series({**default_heartbeat, **next_signals}).round(decimals=1)
+                data_row['_room'] = room
 
-                        for s in sorted_scanners:
-                            off_signals_history[s] += 1
-                            delay_signals_history[s] += 1
-                            if off_signals_history[s] > (TURN_OFF_DEVICE_SEC / signals_per_sec):
-                                off_signals_history[s] = 0
-                                filters[s].reset(-100.0)
-                            elif delay_signals_history[s] > (LONG_DELAY_PENALTY_SEC / signals_per_sec):
-                                delay_signals_history[s] = 0
-                                filters[s].filter(-100.0)
+                if room_init:
+                    result_data.append(data_row)
+                elif seconds_passed > 60:
+                    room_init = True
 
-                        if room_init:
-                            result_data.append(data_row + [room])
-                        elif seconds_passed > 60:
-                            room_init = True
+            last_processed_time = curr_time
 
-    result_data = pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
+    result_data = pd.DataFrame(data=result_data)
     result_data.drop_duplicates(inplace=True)
-    X, y = (result_data.iloc[:, :-1], result_data.room.values)
+    X, y = (result_data.iloc[:, :-1], result_data._room.values)
     return X, y
 
 
 @run_in_executor
 def threaded_train_model(X, y):
     try:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42, test_size=0.5)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=42, test_size=0.8)
         estimator = OneVsOneClassifier(Pipeline([
-            ('select', SelectHighestMean()),
             ('scale', StandardScaler()),
-            ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
+            ('select', SelectFromModel(LogisticRegression(
+                penalty='l1', solver='liblinear', class_weight='balanced', C=0.01, max_iter=10000))),
+            ('classification', RandomForestClassifier(n_estimators=50, class_weight='balanced', n_jobs=-1))
         ]), n_jobs=-1)
         estimator.fit(X_train, y_train)
         room_thresholds, accuracy = calculate_best_thresholds(estimator, X_test, y_test)
@@ -181,7 +227,7 @@ class PresenceEstimator:
         prediction_classes = np.array(list(zip(self.estimator.classes_, prediction)))
 
         max_pred_result = prediction_classes[np.argsort(prediction)[-3:]]
-        pred_result = [r for r in prediction_classes if r[1] >= self.thresholds[r[0]]]
+        pred_result = [r for r in prediction_classes if r[1] >= self.thresholds[r[0]] * 0.9]
         pred_result = max_pred_result if not pred_result else pred_result
 
         return dict(pred_result)

@@ -36,7 +36,7 @@ class UnfilteredRSSI():
 class HeratbeatGenerator:
     def __init__(
         self, scanners=None, kalman=None, silent_scanner_penalty=None, long_delay=None,
-        turn_off_delay=None, device=None
+        turn_off_delay=None, device=None, logging=True
     ) -> None:
         scanners = scanners or []
         self.values = dict(zip(scanners, [-100] * len(scanners)))
@@ -49,8 +49,9 @@ class HeratbeatGenerator:
         self.filters = {} if kalman is not None else None
         self.kalman = kalman
         self.device = device
+        self.logging = logging
 
-    def process(self, signals, time, period):
+    def process(self, signals, time):
         silent_scanners = set(self.values.keys())
 
         for s in signals:
@@ -76,23 +77,27 @@ class HeratbeatGenerator:
                 penalty_signal = max(self.values.get(scanner, -100) - self.silent_scanner_penalty, -100)
                 self.values[scanner] = self.filters[scanner].filter(penalty_signal)
                 self.last_change[scanner] = time
-                logging.info('%s scanner %s silent scanner penalty', repr(self.device), scanner)
+                self.log_info('%s scanner %s silent scanner penalty', repr(self.device), scanner)
 
             if self.turn_off_delay is not None and last_signal_delay >= self.turn_off_delay:
                 self.values[scanner] = self.filters[scanner].reset(-100.0)
                 self.last_change[scanner] = time
                 self.last_signal[scanner] = time
-                logging.info('%s scanner %s turn off penalty', repr(self.device), scanner)
+                self.log_info('%s scanner %s turn off penalty', repr(self.device), scanner)
 
             elif self.long_delay is not None and last_change_delay >= self.long_delay:
                 self.values[scanner] = self.filters[scanner].filter(-100)
                 self.last_change[scanner] = time
-                logging.info('%s scanner %s long delay penalty', repr(self.device), scanner)
+                self.log_info('%s scanner %s long delay penalty', repr(self.device), scanner)
 
         return self.create_heartbeat(signals, time)
 
     def create_heartbeat(self, signals, time):
         return dict(self.values)
+
+    def log_info(self, *args, **kwargs):
+        if self.logging:
+            logging.info(*args, **kwargs)
 
 
 class DeviceTracker:
@@ -141,8 +146,7 @@ class DeviceTracker:
         timestamp = timestamp or datetime.now().timestamp()
         signals = self.collected_signals
         self.collected_signals = []
-        heartbeat = self.gen.process(
-            signals, timestamp, HEARTBEAT_COLLECT_PERIOD_SEC)
+        heartbeat = self.gen.process(signals, timestamp)
 
         if heartbeat != self.last_heartbeat and len(heartbeat) > 0:
             self.last_heartbeat = heartbeat
