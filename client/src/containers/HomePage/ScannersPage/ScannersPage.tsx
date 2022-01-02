@@ -24,6 +24,7 @@ import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
 import { parseGlobalError } from '../../../lib/utility/globalError';
 import { sortArrayByIdAndUuid } from '../../../lib/utility/sortArray';
+import { TYPE_SCANNER } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import ScannersModal from './ScannersModal';
 
@@ -53,7 +54,10 @@ const ScannersPage: React.VFC<Props> = () => {
 
   const [modalState, setModalState] = useState<ScannersModalState>({ ...defaultModalState });
 
-  const [scannersResult] = useGetAllScannersQuery();
+  // Use additional typenames to fix empty lists not updating after first mutation
+  const context = useMemo(() => ({ additionalTypenames: [TYPE_SCANNER] }), []);
+  const [scannersResult] = useGetAllScannersQuery({ context });
+
   const [, addScanner] = useAddScannerMutation();
   const [, updateScanner] = useUpdateScannerMutation();
   const [, removeScanner] = useRemoveScannerMutation();

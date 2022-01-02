@@ -24,6 +24,7 @@ import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
 import { parseGlobalError } from '../../../lib/utility/globalError';
 import { sortArrayByStringId } from '../../../lib/utility/sortArray';
+import { TYPE_ROOM } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import RoomsModal from './RoomsModal';
 
@@ -53,7 +54,10 @@ const RoomsPage: React.VFC<Props> = () => {
 
   const [modalState, setModalState] = useState<RoomsModalState>({ ...defaultModalState });
 
-  const [roomsResult] = useGetAllRoomsQuery();
+  // Use additional typenames to fix empty lists not updating after first mutation
+  const context = useMemo(() => ({ additionalTypenames: [TYPE_ROOM] }), []);
+  const [roomsResult] = useGetAllRoomsQuery({ context });
+
   const [, addRoom] = useAddRoomMutation();
   const [, updateRoom] = useUpdateRoomMutation();
   const [, removeRoom] = useRemoveRoomMutation();

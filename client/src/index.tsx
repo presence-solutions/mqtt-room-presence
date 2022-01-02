@@ -2,12 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import { BrowserRouter } from 'react-router-dom';
 import { Provider as ReduxProvider } from 'react-redux';
+import { createClient, Provider as UrqlProvider } from 'urql';
 
 import { store } from './store/store';
 import App from './containers/App/App';
 // import reportWebVitals from './reportWebVitals';
-
-import { createClient, Provider as UrqlProvider } from 'urql';
 
 const urqlClient = createClient({
   url: process.env.REACT_APP_GRAPHQL_URI!

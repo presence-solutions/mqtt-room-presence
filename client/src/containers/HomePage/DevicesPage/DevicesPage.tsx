@@ -24,6 +24,7 @@ import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
 import { parseGlobalError } from '../../../lib/utility/globalError';
 import { sortArrayByStringId } from '../../../lib/utility/sortArray';
+import { TYPE_DEVICE } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import DevicesModal from './DevicesModal';
 
@@ -55,7 +56,10 @@ const DevicesPage: React.VFC<Props> = () => {
 
   const [modalState, setModalState] = useState<DevicesModalState>({ ...defaultModalState });
 
-  const [devicesResult] = useGetAllDevicesQuery();
+  // Use additional typenames to fix empty lists not updating after first mutation
+  const context = useMemo(() => ({ additionalTypenames: [TYPE_DEVICE] }), []);
+  const [devicesResult] = useGetAllDevicesQuery({ context });
+
   const [, addDevice] = useAddDeviceMutation();
   const [, updateDevice] = useUpdateDeviceMutation();
   const [, removeDevice] = useRemoveDeviceMutation();
