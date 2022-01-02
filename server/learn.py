@@ -10,8 +10,7 @@ from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OF
 from server.utils import calculate_inputs_hash, run_in_executor
 
 from sklearn import metrics
-from sklearn.multiclass import OneVsRestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.multiclass import OneVsOneClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -84,19 +83,19 @@ def threaded_prepare_training_data(signals):
     result_data = pd.DataFrame(columns=sorted_scanners + ['room'], data=result_data)
     result_data.drop_duplicates(inplace=True)
     X, y = (result_data.iloc[:, :-1], result_data.room.values)
-    return train_test_split(X, y, stratify=y, random_state=1, test_size=0.5)
+    return X, y
 
 
 @run_in_executor
-def threaded_train_model(X_train, X_test, y_train, y_test):
+def threaded_train_model(X, y):
     try:
-        estimator = OneVsRestClassifier(Pipeline([
+        estimator = OneVsOneClassifier(Pipeline([
             ('select', SelectHighestMean()),
             ('scale', StandardScaler()),
             ('classification', RandomForestClassifier(n_estimators=100, class_weight='balanced', n_jobs=-1))
-        ]))
-        estimator.fit(X_train, y_train)
-        accuracy = metrics.recall_score(y_test, estimator.predict(X_test), average='micro')
+        ]), n_jobs=-1)
+        estimator.fit(X, y)
+        accuracy = metrics.recall_score(y, estimator.predict(X), average='micro')
         estimator = PresenceEstimator(estimator)
     except Exception as e:
         return 0, None, e
@@ -121,24 +120,24 @@ async def prepare_training_data(device):
     )
 
     signals = await DeviceSignal.filter(device_id=device.id).prefetch_related('room', 'scanner', 'learning_session')
-    X_train, X_test, y_train, y_test = await threaded_prepare_training_data(signals)
+    X, y = await threaded_prepare_training_data(signals)
 
     report_training_progress(
         device=device,
         status_code="dataset_ready",
-        message="The dataset is generated, training {}, testing {}".format(str(len(y_train)), str(len(y_test)))
+        message="The dataset is generated, training {}".format(str(len(y))),
     )
-    return X_train, X_test, y_train, y_test
+    return X, y
 
 
-async def train_model(device, X_train, X_test, y_train, y_test):
+async def train_model(device, X, y):
     report_training_progress(
         device=device,
         status_code="training_started",
         message="Starting to train the model"
     )
 
-    accuracy, model, error = await threaded_train_model(X_train, X_test, y_train, y_test)
+    accuracy, model, error = await threaded_train_model(X, y)
 
     report_training_progress(
         device=device,
