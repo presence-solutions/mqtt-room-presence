@@ -8,7 +8,7 @@ query GetAllDevices {
 
 mutation AddDevice($newDevice: NewDeviceInput!) {
   addDevice(input: $newDevice) {
-		device {
+    device {
       id,
       name,
       uuid

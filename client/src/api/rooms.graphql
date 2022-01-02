@@ -11,7 +11,7 @@ query GetAllRooms {
 
 mutation AddRoom($newRoom: NewRoomInput!) {
   addRoom(input: $newRoom) {
-		room {
+    room {
       id,
       name,
       scanners {
