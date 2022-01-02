@@ -7,7 +7,7 @@ import Layout from '../Layout/Layout';
 import HomePage from '../HomePage/HomePage';
 import RoomsPage from '../HomePage/RoomsPage/RoomsPage';
 import DevicesPage from '../HomePage/DevicesPage/DevicesPage';
-import ScannersPage from '../HomePage/ScannersPage';
+import ScannersPage from '../HomePage/ScannersPage/ScannersPage';
 import NotFoundPage from '../NotFoundPage/NotFoundPage';
 
 import type { LocaleMessages } from '../../intl/helpers';

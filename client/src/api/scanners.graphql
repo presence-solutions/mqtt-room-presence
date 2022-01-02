@@ -1,0 +1,34 @@
+query GetAllScanners {
+  allScanners {
+    id,
+    uuid,
+    usedInRooms {
+      id,
+      name
+    }
+  }
+}
+
+mutation AddScanner($newScanner: NewScannerInput!) {
+  addScanner(input: $newScanner) {
+		scanner {
+      id,
+      uuid
+    }
+  }
+}
+
+mutation UpdateScanner($scanner: UpdateScannerInput!) {
+  updateScanner(input: $scanner) {
+    scanner {
+      id,
+      uuid
+    }
+  }
+}
+
+mutation RemoveScanner($scannerId: ID!) {
+  removeScanner(id: $scannerId) {
+    id
+  }
+}

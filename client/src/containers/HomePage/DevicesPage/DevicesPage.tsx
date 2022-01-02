@@ -22,8 +22,8 @@ import {
 } from '../../../generated/graphql';
 import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
-import { parseGlobalError } from '../../../lib/parsers/globalError';
-import { sortArrayByStringId } from '../../../lib/sorters/common';
+import { parseGlobalError } from '../../../lib/utility/globalError';
+import { sortArrayByStringId } from '../../../lib/utility/sortArray';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import DevicesModal from './DevicesModal';
 
@@ -56,9 +56,9 @@ const DevicesPage: React.VFC<Props> = () => {
   const [modalState, setModalState] = useState<DevicesModalState>({ ...defaultModalState });
 
   const [devicesResult] = useGetAllDevicesQuery();
-  const [addDeviceResult, addDevice] = useAddDeviceMutation();
-  const [updateDeviceResult, updateDevice] = useUpdateDeviceMutation();
-  const [removeDeviceResult, removeDevice] = useRemoveDeviceMutation();
+  const [, addDevice] = useAddDeviceMutation();
+  const [, updateDevice] = useUpdateDeviceMutation();
+  const [, removeDevice] = useRemoveDeviceMutation();
 
   const devices = useMemo(() => {
     return devicesResult.data ? sortArrayByStringId(devicesResult.data.allDevices) : [];

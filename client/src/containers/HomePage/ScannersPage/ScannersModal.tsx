@@ -18,36 +18,36 @@ import ConfirmDialog from '../../../components/ConfirmDialog/ConfirmDialog';
 type Props = {
   open: boolean,
   mode: 'add' | 'edit',
-  roomId: string | null,
+  scannerId: string | null,
   initialValues: {
-    roomName: string
+    scannerUuid: string
   },
   onClose: () => void,
-  onAddRoom: (name: string) => void,
-  onEditRoom: (id: string, name: string) => void,
-  deleteRoom: (id: string) => void
+  onAddScanner: (uuid: string) => void,
+  onEditScanner: (id: string, uuid: string) => void,
+  deleteScanner: (id: string) => void
 };
 
-const RoomsModal: React.VFC<Props> = ({
+const ScannersModal: React.VFC<Props> = ({
   open,
   mode,
-  roomId,
+  scannerId,
   initialValues,
   onClose,
-  onAddRoom,
-  onEditRoom,
-  deleteRoom
+  onAddScanner,
+  onEditScanner,
+  deleteScanner
 }: Props) => {
   const fm = useFormatMessage();
 
   const [loading, setLoading] = useState(false);
   const [openDeleteConfirmDialog, setOpenDeleteConfirmDialog] = useState(false);
 
-  const title = mode === 'add' ? fm('RoomsModal_AddTitle') : fm('RoomsModal_EditTitle');
+  const title = mode === 'add' ? fm('ScannersModal_AddTitle') : fm('ScannersModal_EditTitle');
   const submitButtonText = mode === 'add' ? fm('Button_Add') : fm('Button_Save');
 
   const validationSchema = yup.object({
-    roomName: yup.string().required(fm('Validation_Required'))
+    scannerUuid: yup.string().required(fm('Validation_Required'))
   });
 
   const formik = useFormik({
@@ -58,9 +58,9 @@ const RoomsModal: React.VFC<Props> = ({
       setLoading(true);
 
       if (mode === 'add') {
-        onAddRoom(values.roomName);
-      } else if (roomId !== null) {
-        onEditRoom(roomId, values.roomName);
+        onAddScanner(values.scannerUuid);
+      } else if (scannerId !== null) {
+        onEditScanner(scannerId, values.scannerUuid);
       }
     }
   });
@@ -73,7 +73,7 @@ const RoomsModal: React.VFC<Props> = ({
     }
   }, [open]);
 
-  const onDeleteRoomClick = () => {
+  const onDeleteScannerClick = () => {
     setOpenDeleteConfirmDialog(true);
   };
 
@@ -84,9 +84,9 @@ const RoomsModal: React.VFC<Props> = ({
   const onDeleteConfirm = () => {
     onDeleteConfirmDialogClose();
 
-    if (roomId) {
+    if (scannerId) {
       setLoading(true);
-      deleteRoom(roomId);
+      deleteScanner(scannerId);
     }
   };
 
@@ -99,13 +99,13 @@ const RoomsModal: React.VFC<Props> = ({
           <DialogContent sx={{ py: 0 }}>
             <Box sx={{ py: 1 }}>
               <TextField
-                name='roomName'
+                name='scannerUuid'
                 type='text'
-                label={fm('RoomsModal_NameFieldLabel')}
-                placeholder={fm('RoomsModal_NameFieldPlaceholder')}
-                value={formik.values.roomName}
-                error={formik.touched.roomName && Boolean(formik.errors.roomName)}
-                helperText={formik.touched.roomName && formik.errors.roomName}
+                label={fm('ScannersModal_UuidFieldLabel')}
+                placeholder={fm('ScannersModal_UuidFieldPlaceholder')}
+                value={formik.values.scannerUuid}
+                error={formik.touched.scannerUuid && Boolean(formik.errors.scannerUuid)}
+                helperText={formik.touched.scannerUuid && formik.errors.scannerUuid}
                 onChange={formik.handleChange}
                 variant='outlined'
                 fullWidth
@@ -114,11 +114,11 @@ const RoomsModal: React.VFC<Props> = ({
           </DialogContent>
 
           <DialogActions sx={{ px: 3 }}>
-            {mode === 'edit' && roomId !== null && (
+            {mode === 'edit' && scannerId !== null && (
               <IconButton
                 sx={{ mr: 'auto' }}
                 disabled={loading}
-                onClick={onDeleteRoomClick}>
+                onClick={onDeleteScannerClick}>
                 <DeleteIcon />
               </IconButton>
             )}
@@ -130,8 +130,8 @@ const RoomsModal: React.VFC<Props> = ({
 
       <ConfirmDialog
         open={openDeleteConfirmDialog}
-        title={fm('RoomsDeleteConfirm_Title')}
-        message={fm('RoomsDeleteConfirm_Message')}
+        title={fm('ScannersDeleteConfirm_Title')}
+        message={fm('ScannersDeleteConfirm_Message')}
         confirmLabel={fm('Button_Delete')}
         declineLabel={fm('Button_Cancel')}
         onConfirm={onDeleteConfirm}
@@ -140,4 +140,4 @@ const RoomsModal: React.VFC<Props> = ({
   );
 };
 
-export default RoomsModal;
+export default ScannersModal;

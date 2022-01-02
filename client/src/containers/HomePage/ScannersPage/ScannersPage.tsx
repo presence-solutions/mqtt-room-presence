@@ -15,90 +15,90 @@ import AddIcon from '@mui/icons-material/Add';
 
 import { useFormatMessage } from '../../../intl/helpers';
 import {
-  useGetAllRoomsQuery,
-  useAddRoomMutation,
-  useUpdateRoomMutation,
-  useRemoveRoomMutation
+  useGetAllScannersQuery,
+  useAddScannerMutation,
+  useUpdateScannerMutation,
+  useRemoveScannerMutation
 } from '../../../generated/graphql';
 import { useAppDispatch } from '../../../store/hooks';
 import { setGlobalError } from '../../../store/slices/commonSlice';
 import { parseGlobalError } from '../../../lib/utility/globalError';
-import { sortArrayByStringId } from '../../../lib/utility/sortArray';
+import { sortArrayByIdAndUuid } from '../../../lib/utility/sortArray';
 import PageTitle from '../../../components/PageTitle/PageTitle';
-import RoomsModal from './RoomsModal';
+import ScannersModal from './ScannersModal';
 
-type RoomsModalState = {
+type ScannersModalState = {
   open: boolean,
   mode: 'add' | 'edit',
-  roomId: string | null,
+  scannerId: string | null,
   initialValues: {
-    roomName: string
+    scannerUuid: string
   }
 };
 
 type Props = {};
 
-const defaultModalState: RoomsModalState = {
+const defaultModalState: ScannersModalState = {
   open: false,
   mode: 'add',
-  roomId: null,
+  scannerId: null,
   initialValues: {
-    roomName: ''
+    scannerUuid: ''
   }
 };
 
-const RoomsPage: React.VFC<Props> = () => {
+const ScannersPage: React.VFC<Props> = () => {
   const dispatch = useAppDispatch();
   const fm = useFormatMessage();
 
-  const [modalState, setModalState] = useState<RoomsModalState>({ ...defaultModalState });
+  const [modalState, setModalState] = useState<ScannersModalState>({ ...defaultModalState });
 
-  const [roomsResult] = useGetAllRoomsQuery();
-  const [, addRoom] = useAddRoomMutation();
-  const [, updateRoom] = useUpdateRoomMutation();
-  const [, removeRoom] = useRemoveRoomMutation();
+  const [scannersResult] = useGetAllScannersQuery();
+  const [, addScanner] = useAddScannerMutation();
+  const [, updateScanner] = useUpdateScannerMutation();
+  const [, removeScanner] = useRemoveScannerMutation();
 
-  const rooms = useMemo(() => {
-    return roomsResult.data ? sortArrayByStringId(roomsResult.data.allRooms) : [];
-  }, [roomsResult.data]);
+  const scanners = useMemo(() => {
+    return scannersResult.data ? sortArrayByIdAndUuid(scannersResult.data.allScanners) : [];
+  }, [scannersResult.data]);
 
-  const showSpinner = roomsResult.fetching && rooms.length === 0;
+  const showSpinner = scannersResult.fetching && scanners.length === 0;
 
   const showGlobalError = (e: Error) => {
     dispatch(setGlobalError(parseGlobalError(e)));
   };
 
   useEffect(() => {
-    if (roomsResult.error) {
-      showGlobalError(roomsResult.error);
+    if (scannersResult.error) {
+      showGlobalError(scannersResult.error);
     }
   });
 
-  const onAddRoomClick = () => {
+  const onAddScannerClick = () => {
     setModalState({
       ...defaultModalState,
       open: true
     });
   };
 
-  const onEditRoomClick = (roomId: string) => {
-    const room = rooms.find(r => r.id === roomId);
+  const onEditScannerClick = (scannerId: string) => {
+    const scanner = scanners.find(s => s.id === scannerId);
 
-    if (room) {
+    if (scanner) {
       setModalState({
         open: true,
         mode: 'edit',
-        roomId,
+        scannerId,
         initialValues: {
-          roomName: room.name || ''
+          scannerUuid: scanner.uuid
         }
       });
     }
   };
 
-  const onAddRoom = (name: string) => {
-    addRoom({
-      newRoom: { name }
+  const onAddScanner = (uuid: string) => {
+    addScanner({
+      newScanner: { uuid }
     }).then((result) => {
       closeModal();
 
@@ -108,17 +108,17 @@ const RoomsPage: React.VFC<Props> = () => {
     });
   };
 
-  const onEditRoom = (id: string, name: string) => {
-    const room = rooms.find(r => r.id === id);
+  const onEditScanner = (id: string, uuid: string) => {
+    const scanner = scanners.find(s => s.id === id);
 
-    if (room) {
-      const scanners = room.scanners ? room.scanners.map(scanner => scanner.id!) : [];
+    if (scanner) {
+      const usedInRooms = scanner.usedInRooms ? scanner.usedInRooms.map(room => room.id) : [];
 
-      updateRoom({
-        room: {
+      updateScanner({
+        scanner: {
           id,
-          name,
-          scanners
+          uuid,
+          usedInRooms
         }
       }).then((result) => {
         closeModal();
@@ -130,9 +130,9 @@ const RoomsPage: React.VFC<Props> = () => {
     }
   };
 
-  const deleteRoom = (id: string) => {
-    removeRoom({
-      roomId: id
+  const deleteScanner = (id: string) => {
+    removeScanner({
+      scannerId: id
     }).then((result) => {
       closeModal();
 
@@ -151,21 +151,21 @@ const RoomsPage: React.VFC<Props> = () => {
 
   return (
     <div>
-      <PageTitle>{fm('RoomsPage_Title')}</PageTitle>
+      <PageTitle>{fm('ScannersPage_Title')}</PageTitle>
 
       <Box sx={{ px: { md: 8 }, mt: 2 }}>
         <TableContainer component={Paper}>
-          <Table aria-label='rooms list' sx={{ borderCollapse: 'separate' }}>
+          <Table aria-label='scanners list' sx={{ borderCollapse: 'separate' }}>
             <TableHead>
               <TableRow>
-                <TableCell>{fm('RoomsPage_IdColumn')}</TableCell>
-                <TableCell>{fm('RoomsPage_NameColumn')}</TableCell>
+                <TableCell>{fm('ScannersPage_IdColumn')}</TableCell>
+                <TableCell>{fm('ScannersPage_UuidColumn')}</TableCell>
                 <TableCell align='center' sx={{ p: 0 }}>
-                  <Tooltip title={fm('RoomsPage_AddRoomTooltip')} placement='top'>
+                  <Tooltip title={fm('ScannersPage_AddScannerTooltip')} placement='top'>
                     <IconButton
-                      aria-label='add room'
+                      aria-label='add scanner'
                       sx={{ '&:hover': { cursor: 'pointer' } }}
-                      onClick={onAddRoomClick}>
+                      onClick={onAddScannerClick}>
                       <AddIcon />
                     </IconButton>
                   </Tooltip>
@@ -174,19 +174,21 @@ const RoomsPage: React.VFC<Props> = () => {
             </TableHead>
 
             <TableBody>
-              {rooms.map(room => (
-                <TableRow key={room.id} hover>
-                  <TableCell>{room.id}</TableCell>
-                  <TableCell>{room.name}</TableCell>
+              {scanners.map((scanner, idx) => (
+                <TableRow key={idx} hover>
+                  <TableCell>{scanner.id || ''}</TableCell>
+                  <TableCell>{scanner.uuid}</TableCell>
                   <TableCell align='center' sx={{ p: 0 }}>
-                    <Tooltip title={fm('RoomsPage_EditRoomTooltip')} placement='top'>
-                      <IconButton
-                        aria-label='edit room'
-                        sx={{ '&:hover': { cursor: 'pointer' } }}
-                        onClick={() => { onEditRoomClick(room.id); }}>
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
+                    {scanner.id && (
+                      <Tooltip title={fm('ScannersPage_EditScannerTooltip')} placement='top'>
+                        <IconButton
+                          aria-label='edit scanner'
+                          sx={{ '&:hover': { cursor: 'pointer' } }}
+                          onClick={() => { onEditScannerClick(scanner.id!); }}>
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -201,14 +203,14 @@ const RoomsPage: React.VFC<Props> = () => {
         )}
       </Box>
 
-      <RoomsModal
+      <ScannersModal
         {...modalState}
         onClose={closeModal}
-        onAddRoom={onAddRoom}
-        onEditRoom={onEditRoom}
-        deleteRoom={deleteRoom} />
+        onAddScanner={onAddScanner}
+        onEditScanner={onEditScanner}
+        deleteScanner={deleteScanner} />
     </div>
   );
 };
 
-export default RoomsPage;
+export default ScannersPage;

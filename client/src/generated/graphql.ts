@@ -357,6 +357,32 @@ export type RemoveRoomMutationVariables = Exact<{
 
 export type RemoveRoomMutation = { __typename?: 'Mutation', removeRoom?: { __typename?: 'Room', id: string } | null | undefined };
 
+export type GetAllScannersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetAllScannersQuery = { __typename?: 'Query', allScanners: Array<{ __typename?: 'Scanner', id?: string | null | undefined, uuid: string, usedInRooms?: Array<{ __typename?: 'Room', id: string, name?: string | null | undefined }> | null | undefined }> };
+
+export type AddScannerMutationVariables = Exact<{
+  newScanner: NewScannerInput;
+}>;
+
+
+export type AddScannerMutation = { __typename?: 'Mutation', addScanner: { __typename?: 'ScannerCreateResult', scanner?: { __typename?: 'Scanner', id?: string | null | undefined, uuid: string } | null | undefined } };
+
+export type UpdateScannerMutationVariables = Exact<{
+  scanner: UpdateScannerInput;
+}>;
+
+
+export type UpdateScannerMutation = { __typename?: 'Mutation', updateScanner: { __typename?: 'ScannerUpdateResult', scanner?: { __typename?: 'Scanner', id?: string | null | undefined, uuid: string } | null | undefined } };
+
+export type RemoveScannerMutationVariables = Exact<{
+  scannerId: Scalars['ID'];
+}>;
+
+
+export type RemoveScannerMutation = { __typename?: 'Mutation', removeScanner?: { __typename?: 'Scanner', id?: string | null | undefined } | null | undefined };
+
 
 export const GetAllDevicesDocument = gql`
     query GetAllDevices {
@@ -474,4 +500,59 @@ export const RemoveRoomDocument = gql`
 
 export function useRemoveRoomMutation() {
   return Urql.useMutation<RemoveRoomMutation, RemoveRoomMutationVariables>(RemoveRoomDocument);
+};
+export const GetAllScannersDocument = gql`
+    query GetAllScanners {
+  allScanners {
+    id
+    uuid
+    usedInRooms {
+      id
+      name
+    }
+  }
+}
+    `;
+
+export function useGetAllScannersQuery(options: Omit<Urql.UseQueryArgs<GetAllScannersQueryVariables>, 'query'> = {}) {
+  return Urql.useQuery<GetAllScannersQuery>({ query: GetAllScannersDocument, ...options });
+};
+export const AddScannerDocument = gql`
+    mutation AddScanner($newScanner: NewScannerInput!) {
+  addScanner(input: $newScanner) {
+    scanner {
+      id
+      uuid
+    }
+  }
+}
+    `;
+
+export function useAddScannerMutation() {
+  return Urql.useMutation<AddScannerMutation, AddScannerMutationVariables>(AddScannerDocument);
+};
+export const UpdateScannerDocument = gql`
+    mutation UpdateScanner($scanner: UpdateScannerInput!) {
+  updateScanner(input: $scanner) {
+    scanner {
+      id
+      uuid
+    }
+  }
+}
+    `;
+
+export function useUpdateScannerMutation() {
+  return Urql.useMutation<UpdateScannerMutation, UpdateScannerMutationVariables>(UpdateScannerDocument);
+};
+export const RemoveScannerDocument = gql`
+    mutation RemoveScanner($scannerId: ID!) {
+  removeScanner(id: $scannerId) {
+    id
+  }
+}
+    `;
+
+export function useRemoveScannerMutation() {
+  return Urql.useMutation<RemoveScannerMutation, RemoveScannerMutationVariables>(RemoveScannerDocument);
 };
