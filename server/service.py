@@ -12,7 +12,7 @@ class Service:
         self.hearbeat = Heartbeat()
         self.learn = Learn()
         self.predict = Predict()
-        # self.sensor = Sensor()
+        self.sensor = Sensor()
 
     async def init_rooms(self):
         rooms = await Room.all()
