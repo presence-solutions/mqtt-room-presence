@@ -71,6 +71,8 @@ def threaded_prepare_training_data(signals):
             scanner_df = position_signals_df.loc[position_signals_df['scanner'] == scanner]
             scanner_stat = pos_scan_df.loc[(position, scanner)]
 
+            # Ignore scanners with only 4 signals or with signals frequency significantly lower
+            # than the frequency of the most active scanner
             if scanner_stat['scanner_signals'] < 4 or scanner_stat['scanner_freq_norm'] < 0.2:
                 continue
 
@@ -80,14 +82,16 @@ def threaded_prepare_training_data(signals):
         upsampled_scanner_df = pd.concat(upsampled_scanner_df)
         upsampled_data_df.append(upsampled_scanner_df)
 
-    # Smooth the upsampled data
+    # Smooth the upsampled data to reduce the noise a little bit
     upsampled_data_df = pd.concat(upsampled_data_df).reset_index()
     upsampled_data_df['index'] = upsampled_data_df.groupby(['scanner', 'position']).cumcount()
     upsampled_data_df['rssi_smoothed'] = upsampled_data_df.groupby(['scanner', 'position'])['rssi']\
         .rolling(MOVING_AVERAGE_WINDOW).mean().reset_index((0, 1))['rssi'].round()
     upsampled_data_df.dropna(inplace=True)
 
-    # Generate all possible heartbeats for each position
+    # Generate all possible heartbeats for each position. We use 4 scanners maximum for each position
+    # and smoothed RSSI for each scanner rounded to a whole number so there are not so many
+    # combinations of signal levels from each scanner, hence we can generate all of them for training the model
     heartbeats_df = []
     for position in upsampled_data_df['position'].unique():
         position_df = upsampled_data_df.loc[upsampled_data_df['position'] == position]
