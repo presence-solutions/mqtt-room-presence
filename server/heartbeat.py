@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import numpy as np
 
 from server.events import (
     DeviceAddedEvent, DeviceRemovedEvent, DeviceSignalEvent, HeartbeatEvent, MQTTConnectedEvent, MQTTMessageEvent,
@@ -8,7 +9,8 @@ from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, LONG_DELAY_PENALTY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC, KALMAN_R, KALMAN_Q, TURN_OFF_DEVICE_SEC)
+    SCANNERS_TOPIC, LONG_DELAY_PENALTY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC,
+    MOVING_AVERAGE_WINDOW, TURN_OFF_DEVICE_SEC)
 
 
 def normalize_uuid(uuid: str):
@@ -24,6 +26,26 @@ def normalize_scanner_payload(payload):
     }
 
 
+class MovingAverageRSSI():
+    def __init__(self, window=5) -> None:
+        self.values = []
+        self.window = window
+
+    def filter(self, x):
+        if len(self.values) == self.window:
+            self.values = self.values[1:]
+        self.values.append(x)
+        return self.x
+
+    def reset(self, x):
+        self.values = [x]
+        return self.x
+
+    @property
+    def x(self):
+        return np.mean(self.values) if len(self.values) > 0 else -100
+
+
 class UnfilteredRSSI():
     def __init__(self) -> None:
         self.x = -100
@@ -32,11 +54,14 @@ class UnfilteredRSSI():
         self.x = x
         return x
 
+    def reset(self, x):
+        return self.filter(x)
+
 
 class HeratbeatGenerator:
     def __init__(
         self, scanners=None, kalman=None, silent_scanner_penalty=None, long_delay=None,
-        turn_off_delay=None, device=None, logging=True
+        turn_off_delay=None, device=None, ma=None, logging=True
     ) -> None:
         scanners = scanners or []
         self.values = dict(zip(scanners, [-100] * len(scanners)))
@@ -46,8 +71,9 @@ class HeratbeatGenerator:
         self.silent_scanner_penalty = silent_scanner_penalty
         self.turn_off_delay = turn_off_delay
         self.long_delay = long_delay
-        self.filters = {} if kalman is not None else None
+        self.filters = {}
         self.kalman = kalman
+        self.ma = ma
         self.device = device
         self.logging = logging
 
@@ -61,6 +87,8 @@ class HeratbeatGenerator:
             if scanner not in self.filters:
                 if self.kalman:
                     self.filters[scanner] = KalmanRSSI(R=self.kalman[0], Q=self.kalman[1])
+                elif self.ma:
+                    self.filters[scanner] = MovingAverageRSSI(window=self.ma[0])
                 else:
                     self.filters[scanner] = UnfilteredRSSI()
 
@@ -131,8 +159,8 @@ class DeviceTracker:
         self.collected_signals = []
         self.last_heartbeat = None
         self.gen = HeratbeatGenerator(
-            long_delay=LONG_DELAY_PENALTY_SEC, kalman=(KALMAN_R, KALMAN_Q),
-            turn_off_delay=TURN_OFF_DEVICE_SEC, device=self.device)
+            long_delay=LONG_DELAY_PENALTY_SEC, turn_off_delay=TURN_OFF_DEVICE_SEC,
+            ma=(MOVING_AVERAGE_WINDOW,), device=self.device)
 
     async def next_cycle(self):
         try:
