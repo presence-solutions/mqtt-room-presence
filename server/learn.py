@@ -3,16 +3,16 @@ import pickle
 
 import pandas as pd
 import numpy as np
-from itertools import product
 from server.eventbus import eventbus
 from server.constants import MOVING_AVERAGE_WINDOW
 from server.utils import calculate_inputs_hash, run_in_executor
 from joblib import Parallel, delayed
 
-from sklearn.base import clone as clone_estimator
+from sklearn.multiclass import OneVsOneClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectorMixin
+from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator
 
 from server.eventbus import EventBusSubscriber, subscribe
@@ -40,53 +40,27 @@ def threaded_prepare_training_data(signals):
         'when_ts': x.created_at.timestamp(),
         'position': str(x.learning_session.id),
     } for x in signals])
-    data_df.set_index('position', inplace=True)
-    data_df['session_length'] = data_df.groupby(['position'])['when_ts'].apply(lambda x: x.max() - x.min())
-    data_df.reset_index(inplace=True)
-    data_df.set_index(['position', 'scanner'], inplace=True)
-    data_df['session_scanner_freq'] = data_df.groupby(['position', 'scanner'])\
-        .apply(lambda x: len(x) / x.iloc[0]['session_length'])
-    data_df['session_scanner_signals'] = data_df.groupby(['position', 'scanner']).apply(lambda x: len(x))
-    data_df.reset_index(inplace=True)
-    data_df.set_index('position', inplace=True)
-    data_df['session_scanner_freq_norm'] = data_df.groupby(['position'])['session_scanner_freq']\
-        .apply(lambda x: (x / x.max()))
-    data_df.reset_index(inplace=True)
 
     # Upsample data for each individual scanner-position and select only the most
     # active scanners in each position
     upsampled_data_df = []
-    pos_scan_df = data_df.groupby(['position', 'scanner']).agg(
-        session_length=('session_length', 'min'),
-        scanner_freq=('session_scanner_freq', 'min'),
-        scanner_freq_norm=('session_scanner_freq_norm', 'min'),
-        scanner_signals=('session_scanner_signals', 'min'))
-
     for position in data_df['position'].unique():
         position_signals_df = data_df.loc[data_df['position'] == position]
-        most_active_scanners = pos_scan_df.loc[position].sort_values('scanner_freq', ascending=False).iloc[:4]
         upsampled_scanner_df = []
 
-        for scanner in most_active_scanners.index:
+        for scanner in position_signals_df['scanner'].unique():
             scanner_df = position_signals_df.loc[position_signals_df['scanner'] == scanner]
-            scanner_stat = pos_scan_df.loc[(position, scanner)]
-
-            # Ignore scanners with only 4 signals or with signals frequency significantly lower
-            # than the frequency of the most active scanner
-            if scanner_stat['scanner_signals'] < 4 or scanner_stat['scanner_freq_norm'] < 0.2:
-                continue
-
-            scanner_df = scanner_df.sample(n=400, replace=True, ignore_index=True)
+            scanner_df = scanner_df.sample(n=10000, replace=True, ignore_index=True)
             upsampled_scanner_df.append(scanner_df[['rssi', 'when_ts', 'scanner', 'position', 'room']])
 
         upsampled_scanner_df = pd.concat(upsampled_scanner_df)
         upsampled_data_df.append(upsampled_scanner_df)
-
-    # Smooth the upsampled data to reduce the noise a little bit
     upsampled_data_df = pd.concat(upsampled_data_df).reset_index()
     upsampled_data_df['index'] = upsampled_data_df.groupby(['scanner', 'position']).cumcount()
+
+    # Smooth the upsampled data to reduce the noise a little bit
     upsampled_data_df['rssi_smoothed'] = upsampled_data_df.groupby(['scanner', 'position'])['rssi']\
-        .rolling(MOVING_AVERAGE_WINDOW).mean().reset_index((0, 1))['rssi'].round()
+        .rolling(MOVING_AVERAGE_WINDOW).mean().reset_index((0, 1))['rssi'].round(1)
     upsampled_data_df.dropna(inplace=True)
 
     # Generate all possible heartbeats for each position. We use 4 scanners maximum for each position
@@ -95,16 +69,11 @@ def threaded_prepare_training_data(signals):
     heartbeats_df = []
     for position in upsampled_data_df['position'].unique():
         position_df = upsampled_data_df.loc[upsampled_data_df['position'] == position]
-        active_scanners = position_df['scanner'].unique()
-        unique_scanner_rssi = [
-            position_df.loc[position_df['scanner'] == scanner]['rssi_smoothed'].unique().tolist()
-            for scanner in active_scanners
-        ]
-        position_heartbeats_df = pd.DataFrame(data=product(*unique_scanner_rssi), columns=active_scanners)
+        position_heartbeats_df = position_df.pivot_table(
+            values='rssi_smoothed', index='index', columns='scanner', fill_value=-100)
         position_heartbeats_df['_room'] = position_df.iloc[0]['room']
         position_heartbeats_df['_position'] = position
-        heartbeats_df.append(position_heartbeats_df)
-
+        heartbeats_df.append(position_heartbeats_df.reset_index())
     heartbeats_df = pd.concat(heartbeats_df)[[*upsampled_data_df['scanner'].unique(), '_room', '_position']]
     heartbeats_df.fillna(-100, inplace=True)
     heartbeats_df.drop_duplicates(inplace=True)
@@ -115,29 +84,16 @@ def threaded_prepare_training_data(signals):
 @run_in_executor
 def threaded_train_model(heartbeats_df):
     try:
-        X_train_idx_df = heartbeats_df.set_index(['_room', '_position']).sort_index()
-        position_estimators = {}
-        train_scores = []
-        binary_estimator = Pipeline([
+        estimator = OneVsOneClassifier(Pipeline([
             ('select', SelectHighestMean()),
-            ('classification', RandomForestClassifier(n_estimators=5, class_weight='balanced', n_jobs=-1))
-        ])
-
-        for room in X_train_idx_df.index.get_level_values('_room').unique():
-            for position in X_train_idx_df.loc[(room,)].index.unique():
-                pos_mask = (heartbeats_df['_room'] != room) | (heartbeats_df['_position'] == position)
-                X_pos_train_raw = heartbeats_df[pos_mask].copy()
-                X_pos_train = X_pos_train_raw.iloc[:, :-2]
-                y_pos_train = X_pos_train_raw['_position'] == position
-
-                estimator = clone_estimator(binary_estimator)
-                position_estimators[(room, position)] = estimator
-                estimator.fit(X_pos_train, y_pos_train)
-                train_scores.append(estimator.score(X_pos_train, y_pos_train))
-
+            ('scale', StandardScaler()),
+            ('classification', RandomForestClassifier(n_estimators=10, class_weight='balanced', n_jobs=-1))
+        ]))
+        X, y = heartbeats_df.iloc[:, :-2], heartbeats_df._room
+        estimator.fit(X, y)
+        accuracy = estimator.score(X, y)
         scanners_list = heartbeats_df.columns[:-2].tolist()
-        estimator = EnsambledPresenceEstimator(position_estimators, scanners_list)
-        accuracy = np.mean(train_scores)
+        estimator = SimplePresenceEstimator(estimator, scanners_list)
     except Exception as e:
         return 0, None, e
 
@@ -197,6 +153,24 @@ def _get_best_prediction(x):
     preds = x['predictions'].to_numpy()
     preds = np.concatenate(preds).reshape(len(preds), len(preds[0]))
     return pd.Series(preds.max(axis=0))
+
+
+class SimplePresenceEstimator:
+    def __init__(self, estimator, scanners_list) -> None:
+        self.estimator = estimator
+        self.scanners_list = scanners_list
+
+    def predict(self, data_row):
+        data_row = data_row[self.scanners_list].round(1)
+        prediction = self.estimator.decision_function(data_row)[0]
+        prediction_classes = np.array(list(zip(self.estimator.classes_, prediction)))
+        threshold = len(self.estimator.classes_) * 0.8
+
+        max_pred_result = prediction_classes[np.argsort(prediction)[-2:]]
+        pred_result = [r for r in prediction_classes if r[1] >= threshold]
+        pred_result = max_pred_result if not pred_result else pred_result
+
+        return dict(pred_result)
 
 
 class EnsambledPresenceEstimator:

@@ -4,4 +4,6 @@ services:
     build: .
     volumes:
       - ./data.sqlite3:/app/data.sqlite3
+      - ./data.sqlite3-shm:/app/data.sqlite3-shm
+      - ./data.sqlite3-wal:/app/data.sqlite3-wal
       - ./.env:/app/.env

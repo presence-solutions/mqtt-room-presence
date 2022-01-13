@@ -78,12 +78,12 @@ class DeviceState:
             current_maybe_state['appeared_times'] = 0
             self.in_rooms[room_id] = room_state
 
-    async def update(self, room_occupancy):
-        # When the device is not detected in any rooms – clear the state
-        if not room_occupancy or self.maybe_in_rooms is None:
+    async def update(self, room_occupancy, signals):
+        if self.maybe_in_rooms is None or not signals:
             self.maybe_in_rooms = {}
             self.in_rooms = {}
         else:
+            room_occupancy = room_occupancy or []
             merged_occupancy = dict((r, False) for r, _ in self.in_rooms.items())
             merged_occupancy.update(dict((r, False) for r, _ in self.maybe_in_rooms.items()))
             merged_occupancy.update(dict((o['room'].id, o['state']) for o in room_occupancy))
@@ -194,5 +194,5 @@ class Sensor(EventBusSubscriber):
         if event.device.id not in self.device_states:
             return
 
-        await self.device_states[event.device.id].update(event.room_occupancy)
+        await self.device_states[event.device.id].update(event.room_occupancy, event.signals)
         await self.recompute_state()
