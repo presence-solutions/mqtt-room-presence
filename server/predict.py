@@ -70,9 +70,11 @@ class Predict(EventBusSubscriber):
             "proba": result[k],
         } for k in result.keys()]
 
-        eventbus.post(OccupancyEvent(
-            device=event.device,
-            room_occupancy=result,
-            signals=data.iloc[0].to_dict(),
-            prediction_model=prediction_model,
-        ))
+        # Skip predictions with no rooms
+        if len(result) > 0:
+            eventbus.post(OccupancyEvent(
+                device=event.device,
+                room_occupancy=result,
+                signals=data.iloc[0].to_dict(),
+                prediction_model=prediction_model,
+            ))

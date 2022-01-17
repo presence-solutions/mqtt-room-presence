@@ -9,8 +9,8 @@ from server.eventbus import EventBusSubscriber, eventbus, subscribe
 from server.kalman import KalmanRSSI
 from datetime import datetime
 from server.constants import (
-    SCANNERS_TOPIC, LONG_DELAY_PENALTY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC,
-    MOVING_AVERAGE_WINDOW, TURN_OFF_DEVICE_SEC)
+    KALMAN_Q, KALMAN_R, SCANNERS_TOPIC, LONG_DELAY_PENALTY_SEC, HEARTBEAT_COLLECT_PERIOD_SEC,
+    TURN_OFF_DEVICE_SEC)
 
 
 def normalize_uuid(uuid: str):
@@ -160,7 +160,7 @@ class DeviceTracker:
         self.last_heartbeat = None
         self.gen = HeratbeatGenerator(
             long_delay=LONG_DELAY_PENALTY_SEC, turn_off_delay=TURN_OFF_DEVICE_SEC,
-            ma=(MOVING_AVERAGE_WINDOW,), device=self.device)
+            kalman=(KALMAN_R, KALMAN_Q), device=self.device)
 
     async def next_cycle(self):
         try:
