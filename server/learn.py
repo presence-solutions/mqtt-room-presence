@@ -1,19 +1,21 @@
+from collections import defaultdict
 from datetime import datetime
 import pickle
 
 import pandas as pd
 import numpy as np
-from server.heartbeat import HeratbeatGenerator
+from server.kalman import KalmanRSSI
 from server.eventbus import eventbus
-from server.constants import KALMAN_Q, KALMAN_R, LONG_DELAY_PENALTY_SEC, TURN_OFF_DEVICE_SEC
+from server.constants import KALMAN_Q, KALMAN_R
 from server.utils import calculate_inputs_hash, run_in_executor
+from joblib import Parallel, delayed
 
+from sklearn.base import clone as clone_estimator
 from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectorMixin
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator
-from sklearn.multiclass import OneVsRestClassifier
-from sklearn.neighbors import KNeighborsClassifier
 
 from server.eventbus import EventBusSubscriber, subscribe
 from server.events import (
@@ -23,99 +25,9 @@ from server.models import (
     DeviceSignal, PredictionModel, Scanner, LearningSession, get_rooms_scanners)
 
 
-def select_scanner_delay(signal_row, rssi_bin_scanner_data):
-    try:
-        delay = rssi_bin_scanner_data.loc[(signal_row['scanner'], signal_row['rssi_bin']), 'delay']\
-            .sample(n=1).iloc[0]
-    except KeyError:
-        delay = 5.0
-    return delay if delay > 0 else 5.0
-
-
-def upscale_signals_data(data_df, rounds=2):
-    data_df = data_df.copy().sort_values('when_ts')
-    data_df['rssi_bin'] = pd.cut(data_df['rssi'], np.arange(-100, 0, 5))
-    data_df['delay'] = data_df.groupby(['scanner', 'position'], as_index=False)['when_ts']\
-        .rolling(window=2).apply(lambda x: x.iloc[1] - x.iloc[0])['when_ts']
-    data_df['delay'].fillna(0, inplace=True)
-
-    upscaled_data_df = []
-    rssi_bins_data_df = data_df.set_index(['scanner', 'rssi_bin']).sort_index()
-    data_df = data_df.set_index(['position']).sort_index()
-
-    for pos in data_df.index.unique():
-        pos_df = data_df.loc[pos].reset_index()
-        new_session_time = pos_df['when_ts'].max()
-        session_dur = pos_df['when_ts'].max() - pos_df['when_ts'].min()
-        upscaled_data_df.append(pos_df)
-        rounds_to_gen = int(np.ceil((TURN_OFF_DEVICE_SEC * rounds) / session_dur))
-
-        for i in range(rounds_to_gen):
-            sampled_df = pos_df.sample(n=int(len(pos_df)), replace=False, ignore_index=True)
-            sampled_df['delay'] = sampled_df.apply(select_scanner_delay, axis=1, args=(rssi_bins_data_df,))
-            sampled_df['when_ts'] = sampled_df.groupby('scanner')['delay'].transform(pd.Series.cumsum)
-            sampled_df['when_ts'] += new_session_time
-            sampled_df['position'] = pos
-            new_session_time = sampled_df['when_ts'].max()
-            upscaled_data_df.append(sampled_df)
-
-    upscaled_data_df = pd.concat(upscaled_data_df).reset_index().sort_values('when_ts')
-    upscaled_data_df['delay'] = upscaled_data_df\
-        .groupby(['position', 'scanner'], as_index=False)['when_ts'].rolling(window=2)\
-        .apply(lambda x: x.iloc[1] - x.iloc[0])['when_ts']
-    upscaled_data_df['delay'].fillna(0, inplace=True)
-    return upscaled_data_df
-
-
-def generate_data_new(data_df, rounds=3):
-    gen = HeratbeatGenerator(
-        long_delay=LONG_DELAY_PENALTY_SEC, turn_off_delay=TURN_OFF_DEVICE_SEC,
-        kalman=(KALMAN_R, KALMAN_Q), device=None, logging=False)
-
-    positions = data_df['position'].unique()
-    scanners = data_df['scanner'].unique()
-    data_df = data_df.set_index('position').sort_values('when_ts')
-    default_heartbeat = dict(zip(scanners, [-100] * len(scanners)))
-    result_data = []
-    time_shift = 0
-    last_processed_time = None
-    prev_room = None
-    room_init = False
-    seconds_passed = 0
-
-    for _ in range(rounds):
-        for position in np.random.choice(positions, len(positions), replace=False):
-            signals_df = data_df.loc[position].reset_index()
-            first_signal = signals_df.iloc[0]
-            room = first_signal['room']
-            seconds_passed = seconds_passed if room == prev_room else 0
-            room_init = room == prev_room
-            prev_room = room
-            time_shift = last_processed_time - first_signal['when_ts'] if last_processed_time else time_shift
-            curr_time = first_signal['when_ts'] + time_shift
-
-            for _, row in signals_df.iterrows():
-                seconds_passed += row['when_ts'] + time_shift - curr_time
-                curr_time = row['when_ts'] + time_shift
-                next_signals = gen.process(
-                    [{'rssi': row['rssi'], 'when': curr_time, 'scanner': row['scanner']}], curr_time)
-                data_row = pd.Series({**default_heartbeat, **next_signals}).round(decimals=1)
-                data_row['_room'] = room
-
-                if room_init:
-                    result_data.append(data_row)
-                elif seconds_passed > 60:
-                    room_init = True
-
-            last_processed_time = curr_time
-
-    result_data = pd.DataFrame(data=result_data)
-    result_data.drop_duplicates(inplace=True)
-    return result_data
-
-
 @run_in_executor
 def threaded_prepare_training_data(signals):
+    # Prepare the dataframe with signals
     data_df = pd.DataFrame([{
         'rssi': x.rssi,
         'scanner': x.scanner.uuid,
@@ -124,23 +36,74 @@ def threaded_prepare_training_data(signals):
         'position': str(x.learning_session.id),
     } for x in signals])
 
-    return generate_data_new(upscale_signals_data(data_df, 2), 3)
+    # Upsample data for each individual scanner-position and select only the most
+    # active scanners in each position
+    upsampled_data_df = []
+    for position in data_df['position'].unique():
+        position_signals_df = data_df.loc[data_df['position'] == position]
+        upsampled_scanner_df = []
+
+        for scanner in position_signals_df['scanner'].unique():
+            scanner_df = position_signals_df.loc[position_signals_df['scanner'] == scanner]
+            scanner_df = scanner_df.sample(n=5000, replace=True, ignore_index=True)
+            upsampled_scanner_df.append(scanner_df[['rssi', 'when_ts', 'scanner', 'position', 'room']])
+
+        upsampled_scanner_df = pd.concat(upsampled_scanner_df)
+        upsampled_data_df.append(upsampled_scanner_df)
+    upsampled_data_df = pd.concat(upsampled_data_df).reset_index()
+    upsampled_data_df['index'] = upsampled_data_df.groupby(['scanner', 'position']).cumcount()
+
+    # Smooth the upsampled data to reduce the noise a little bit
+    kalman_filters = defaultdict(lambda: KalmanRSSI(R=KALMAN_R, Q=KALMAN_Q))
+    upsampled_data_df['rssi_smoothed'] = upsampled_data_df.groupby(['scanner', 'position'])['rssi']\
+        .transform(lambda x: [kalman_filters[x.name].filter(v) for v in x])
+    upsampled_data_df.dropna(inplace=True)
+
+    # Generate all possible heartbeats for each position. We use 4 scanners maximum for each position
+    # and smoothed RSSI for each scanner rounded to a whole number so there are not so many
+    # combinations of signal levels from each scanner, hence we can generate all of them for training the model
+    heartbeats_df = []
+    for position in upsampled_data_df['position'].unique():
+        position_df = upsampled_data_df.loc[upsampled_data_df['position'] == position]
+        position_heartbeats_df = position_df.pivot_table(
+            values='rssi_smoothed', index='index', columns='scanner', fill_value=-100)
+        position_heartbeats_df['_room'] = position_df.iloc[0]['room']
+        position_heartbeats_df['_position'] = position
+        heartbeats_df.append(position_heartbeats_df.reset_index())
+    heartbeats_df = pd.concat(heartbeats_df)[[*upsampled_data_df['scanner'].unique(), '_room', '_position']]
+    heartbeats_df.fillna(-100, inplace=True)
+    heartbeats_df.drop_duplicates(inplace=True)
+
+    return heartbeats_df
 
 
 @run_in_executor
 def threaded_train_model(heartbeats_df):
     try:
-        room_classifier = OneVsRestClassifier(Pipeline([
-            ('select', SelectHighestMean(max_features=100, min_value=-95)),
+        X_train_idx_df = heartbeats_df.set_index(['_room', '_position']).sort_index()
+        position_estimators = {}
+        train_scores = []
+        binary_estimator = Pipeline([
+            ('select', SelectHighestMean()),
             ('scale', StandardScaler()),
-            ('classification', KNeighborsClassifier(3))
-        ]))
+            ('classification', RandomForestClassifier(n_estimators=10, class_weight='balanced', n_jobs=-1))
+        ])
 
-        X, y = heartbeats_df.iloc[:, :-2], heartbeats_df._room
-        room_classifier.fit(X, y)
-        accuracy = room_classifier.score(X, y)
+        for room in X_train_idx_df.index.get_level_values('_room').unique():
+            for position in X_train_idx_df.loc[(room,)].index.unique():
+                pos_mask = (heartbeats_df['_room'] != room) | (heartbeats_df['_position'] == position)
+                X_pos_train_raw = heartbeats_df[pos_mask]
+                X_pos_train = X_pos_train_raw.iloc[:, :-2]
+                y_pos_train = X_pos_train_raw['_position'] == position
+
+                estimator = clone_estimator(binary_estimator)
+                position_estimators[(room, position)] = estimator
+                estimator.fit(X_pos_train, y_pos_train)
+                train_scores.append(estimator.score(X_pos_train, y_pos_train))
+
         scanners_list = heartbeats_df.columns[:-2].tolist()
-        estimator = KNNPresenceEstimator(room_classifier, scanners_list)
+        estimator = EnsambledPresenceEstimator(position_estimators, scanners_list)
+        accuracy = np.mean(train_scores)
     except Exception as e:
         return 0, None, e
 
@@ -202,25 +165,27 @@ def _get_best_prediction(x):
     return pd.Series(preds.max(axis=0))
 
 
-class KNNPresenceEstimator:
-    def __init__(self, estimator, scanners_list) -> None:
-        self.estimator = estimator
+class EnsambledPresenceEstimator:
+    def __init__(self, estimators, scanners_list) -> None:
+        self.estimators = estimators
         self.scanners_list = scanners_list
 
     def predict(self, data_row):
         data_row = data_row[self.scanners_list]
-        prediction = self.estimator.predict_proba(data_row)[0]
-        prediction_classes = list(zip(self.estimator.classes_, prediction))
-        pred_result = [r for r in prediction_classes if r[1] > 0]
-        return dict(pred_result)
+        pred_res = Parallel()(
+            delayed(_predict_single_room_position)(data_row, estimator, key)
+            for key, estimator in self.estimators.items())
+        pred_res = pd.DataFrame(data=pred_res, columns=['room', 'position', 'predictions'])\
+            .groupby(['room']).apply(_get_best_prediction).T
+        prediction = pred_res.iloc[0]
+        return prediction[prediction > 0].to_dict()
 
 
 class SelectHighestMean(SelectorMixin, BaseEstimator):
-    def __init__(self, max_features=4, min_value=-92) -> None:
-        super().__init__()
-        self.max_features = max_features
-        self.min_value = min_value
-
+    """
+    Use only the scanners with the highest mean and ignore
+    those where the mean is worse than -90
+    """
     def fit(self, X, y):
         self.means_ = np.mean(X[y == 1], axis=0)
         return self
@@ -229,11 +194,11 @@ class SelectHighestMean(SelectorMixin, BaseEstimator):
         return {'requires_y': True}
 
     def _get_support_mask(self):
+        highest_indexes = np.argsort(self.means_, kind="mergesort")
         mask = np.zeros(self.means_.shape, dtype=bool)
-        sorted_indexes = np.argsort(self.means_, kind="mergesort")
-        mask[sorted_indexes[-self.max_features:]] = 1
-        mask[self.means_ <= self.min_value] = 0
-        mask[sorted_indexes[-1:]] = 1
+        mask[highest_indexes[-3:]] = 1
+        mask[self.means_ < -90] = 0
+        mask[highest_indexes[-1:]] = 1
         return mask
 
 
