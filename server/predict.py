@@ -70,7 +70,8 @@ class Predict(EventBusSubscriber):
             "proba": result[k],
         } for k in result.keys()]
 
-        # Skip predictions with no rooms
+        # Skip predictions with no rooms, it is uncertain where the
+        # device is located (out of the known data)
         if len(result) > 0:
             eventbus.post(OccupancyEvent(
                 device=event.device,
