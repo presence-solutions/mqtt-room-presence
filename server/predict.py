@@ -46,6 +46,7 @@ class Predict(EventBusSubscriber):
                 device=event.device,
                 room_occupancy=[],
                 signals=None,
+                prediction_model=None,
             ))
             return
 

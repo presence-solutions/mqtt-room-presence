@@ -197,7 +197,7 @@ class SelectHighestMean(SelectorMixin, BaseEstimator):
         highest_indexes = np.argsort(self.means_, kind="mergesort")
         mask = np.zeros(self.means_.shape, dtype=bool)
         mask[highest_indexes[-3:]] = 1
-        mask[self.means_ < -90] = 0
+        mask[self.means_ < -92] = 0
         mask[highest_indexes[-1:]] = 1
         return mask
 
