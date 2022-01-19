@@ -10,11 +10,7 @@ from server.constants import KALMAN_Q, KALMAN_R
 from server.utils import calculate_inputs_hash, run_in_executor
 from joblib import Parallel, delayed
 
-from sklearn.base import clone as clone_estimator
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectorMixin
-from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator
 
 from server.eventbus import EventBusSubscriber, subscribe
@@ -78,32 +74,28 @@ def threaded_prepare_training_data(signals):
 
 
 @run_in_executor
-def threaded_train_model(heartbeats_df):
+def threaded_train_model(heartbeats_df, rooms):
     try:
-        X_train_idx_df = heartbeats_df.set_index(['_room', '_position']).sort_index()
-        position_estimators = {}
-        train_scores = []
-        binary_estimator = Pipeline([
-            ('select', SelectHighestMean()),
-            ('scale', StandardScaler()),
-            ('classification', RandomForestClassifier(n_estimators=10, class_weight='balanced', n_jobs=-1))
-        ])
+        scanner_names = set(heartbeats_df.columns[:-2].tolist())
+        scanner_means = heartbeats_df.groupby('_room').agg(['mean', 'std'])
+        room_prediction_rules = {}
+        room_scanner_map = dict((r.id, [s.uuid for s in r.scanners]) for r in rooms)
 
-        for room in X_train_idx_df.index.get_level_values('_room').unique():
-            for position in X_train_idx_df.loc[(room,)].index.unique():
-                pos_mask = (heartbeats_df['_room'] != room) | (heartbeats_df['_position'] == position)
-                X_pos_train_raw = heartbeats_df[pos_mask]
-                X_pos_train = X_pos_train_raw.iloc[:, :-2]
-                y_pos_train = X_pos_train_raw['_position'] == position
+        for room in heartbeats_df['_room'].unique():
+            other_scanners = scanner_names - set(room_scanner_map[room])
+            room_rules = []
+            room_prediction_rules[room] = room_rules
+            room_rules += [
+                (s, np.greater, scanner_means.loc[room][s]['mean'] - scanner_means.loc[room][s]['std'] * 3)
+                for s in room_scanner_map[room]
+            ]
+            room_rules += [
+                (s, np.less, np.max([scanner_means.loc[room][s]['mean'] + scanner_means.loc[room][s]['std'] * 3, -95]))
+                for s in other_scanners if scanner_means.loc[room][s]['mean'] > -99
+            ]
 
-                estimator = clone_estimator(binary_estimator)
-                position_estimators[(room, position)] = estimator
-                estimator.fit(X_pos_train, y_pos_train)
-                train_scores.append(estimator.score(X_pos_train, y_pos_train))
-
-        scanners_list = heartbeats_df.columns[:-2].tolist()
-        estimator = EnsambledPresenceEstimator(position_estimators, scanners_list)
-        accuracy = np.mean(train_scores)
+        estimator = StatisticalPresenceEstimator(room_prediction_rules)
+        accuracy = 1
     except Exception as e:
         return 0, None, e
 
@@ -137,14 +129,14 @@ async def prepare_training_data(device):
     return heartbeats
 
 
-async def train_model(device, heartbeats):
+async def train_model(device, heartbeats, rooms):
     report_training_progress(
         device=device,
         status_code="training_started",
         message="Starting to train the model"
     )
 
-    accuracy, model, error = await threaded_train_model(heartbeats)
+    accuracy, model, error = await threaded_train_model(heartbeats, rooms)
 
     report_training_progress(
         device=device,
@@ -163,6 +155,24 @@ def _get_best_prediction(x):
     preds = x['predictions'].to_numpy()
     preds = np.concatenate(preds).reshape(len(preds), len(preds[0]))
     return pd.Series(preds.max(axis=0))
+
+
+class StatisticalPresenceEstimator:
+    def __init__(self, room_rules) -> None:
+        self.room_rules = room_rules
+
+    def predict(self, data_row):
+        def _do_predict_room_stat(row):
+            predictions = {}
+            for room, rules in self.room_rules.items():
+                if all(predicate(row[scanner], val) for scanner, predicate, val in rules):
+                    predictions[room] = 1.0
+                else:
+                    predictions[room] = 0.0
+            return pd.Series(predictions)
+
+        prediction = data_row.apply(_do_predict_room_stat, axis=1).iloc[0]
+        return prediction[prediction > 0].to_dict()
 
 
 class EnsambledPresenceEstimator:
@@ -284,7 +294,7 @@ class Learn(EventBusSubscriber):
         rooms, scanners = await get_rooms_scanners()
         inputs_hash = await calculate_inputs_hash(rooms, scanners)
         heartbeats = await prepare_training_data(device)
-        accuracy, model, error = await train_model(device, heartbeats)
+        accuracy, model, error = await train_model(device, heartbeats, rooms)
 
         if error is not None:
             report_training_progress(
@@ -292,7 +302,7 @@ class Learn(EventBusSubscriber):
                 status_code="failed",
                 is_final=True,
                 is_error=True,
-                message="Failed to train the model, reason: {}".format(str(error))
+                message="Failed to train the model, reason: {}".format(repr(error))
             )
         else:
             result = await PredictionModel.create(

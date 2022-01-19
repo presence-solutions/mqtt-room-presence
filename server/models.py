@@ -78,7 +78,7 @@ class PredictionModel(Base, TimestampMixin):
 
 @alru_cache
 async def get_rooms_scanners():
-    rooms = await Room.all()
+    rooms = await Room.all().prefetch_related('scanners')
     scanners = await Scanner.all()
     return rooms, scanners
 
