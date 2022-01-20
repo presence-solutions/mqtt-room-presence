@@ -15,17 +15,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useFormatMessage } from '../../../intl/helpers';
 import ConfirmDialog from '../../../components/ConfirmDialog/ConfirmDialog';
 
+import type { NewRoomInput, UpdateRoomInput } from '../../../generated/graphql';
+import type { RoomsModalInitialValues } from './RoomsPage';
+
 type Props = {
   open: boolean,
   mode: 'add' | 'edit',
   roomId: string | null,
-  initialValues: {
-    roomName: string
-  },
+  initialValues: RoomsModalInitialValues,
   onClose: () => void,
-  onAddRoom: (name: string) => void,
-  onEditRoom: (id: string, name: string) => void,
-  deleteRoom: (id: string) => void
+  onAddRoom: (newRoom: NewRoomInput) => void,
+  onEditRoom: (room: UpdateRoomInput) => void,
+  deleteRoom: (roomId: string) => void
 };
 
 const RoomsModal: React.VFC<Props> = ({
@@ -47,7 +48,7 @@ const RoomsModal: React.VFC<Props> = ({
   const submitButtonText = mode === 'add' ? fm('Button_Add') : fm('Button_Save');
 
   const validationSchema = yup.object({
-    roomName: yup.string().required(fm('Validation_Required'))
+    name: yup.string().required(fm('Validation_Required'))
   });
 
   const formik = useFormik({
@@ -58,9 +59,12 @@ const RoomsModal: React.VFC<Props> = ({
       setLoading(true);
 
       if (mode === 'add') {
-        onAddRoom(values.roomName);
+        onAddRoom({ ...values });
       } else if (roomId !== null) {
-        onEditRoom(roomId, values.roomName);
+        onEditRoom({
+          id: roomId,
+          ...values
+        });
       }
     }
   });
@@ -99,13 +103,13 @@ const RoomsModal: React.VFC<Props> = ({
           <DialogContent sx={{ py: 0 }}>
             <Box sx={{ py: 1 }}>
               <TextField
-                name='roomName'
+                name='name'
                 type='text'
                 label={fm('RoomsModal_NameFieldLabel')}
                 placeholder={fm('RoomsModal_NameFieldPlaceholder')}
-                value={formik.values.roomName}
-                error={formik.touched.roomName && Boolean(formik.errors.roomName)}
-                helperText={formik.touched.roomName && formik.errors.roomName}
+                value={formik.values.name}
+                error={formik.touched.name && Boolean(formik.errors.name)}
+                helperText={formik.touched.name && formik.errors.name}
                 onChange={formik.handleChange}
                 variant='outlined'
                 fullWidth

@@ -15,18 +15,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useFormatMessage } from '../../../intl/helpers';
 import ConfirmDialog from '../../../components/ConfirmDialog/ConfirmDialog';
 
+import type { NewDeviceInput, UpdateDeviceInput } from '../../../generated/graphql';
+import type { DevicesModalInitialValues } from './DevicesPage';
+
 type Props = {
   open: boolean,
   mode: 'add' | 'edit',
   deviceId: string | null,
-  initialValues: {
-    deviceName: string,
-    deviceUuid: string
-  },
+  initialValues: DevicesModalInitialValues,
   onClose: () => void,
-  onAddDevice: (name: string, uuid: string) => void,
-  onEditDevice: (id: string, name: string, uuid: string) => void,
-  deleteDevice: (id: string) => void
+  onAddDevice: (newDevice: NewDeviceInput) => void,
+  onEditDevice: (device: UpdateDeviceInput) => void,
+  deleteDevice: (deviceId: string) => void
 };
 
 const DevicesModal: React.VFC<Props> = ({
@@ -48,8 +48,8 @@ const DevicesModal: React.VFC<Props> = ({
   const submitButtonText = mode === 'add' ? fm('Button_Add') : fm('Button_Save');
 
   const validationSchema = yup.object({
-    deviceName: yup.string().required(fm('Validation_Required')),
-    deviceUuid: yup.string().required(fm('Validation_Required'))
+    name: yup.string().required(fm('Validation_Required')),
+    uuid: yup.string().required(fm('Validation_Required'))
   });
 
   const formik = useFormik({
@@ -60,9 +60,12 @@ const DevicesModal: React.VFC<Props> = ({
       setLoading(true);
 
       if (mode === 'add') {
-        onAddDevice(values.deviceName, values.deviceUuid);
+        onAddDevice({ ...values });
       } else if (deviceId !== null) {
-        onEditDevice(deviceId, values.deviceName, values.deviceUuid);
+        onEditDevice({
+          id: deviceId,
+          ...values
+        });
       }
     }
   });
@@ -101,13 +104,13 @@ const DevicesModal: React.VFC<Props> = ({
           <DialogContent sx={{ py: 0 }}>
             <Box sx={{ py: 1 }}>
               <TextField
-                name='deviceName'
+                name='name'
                 type='text'
                 label={fm('DevicesModal_NameFieldLabel')}
                 placeholder={fm('DevicesModal_NameFieldPlaceholder')}
-                value={formik.values.deviceName}
-                error={formik.touched.deviceName && Boolean(formik.errors.deviceName)}
-                helperText={formik.touched.deviceName && formik.errors.deviceName}
+                value={formik.values.name}
+                error={formik.touched.name && Boolean(formik.errors.name)}
+                helperText={formik.touched.name && formik.errors.name}
                 onChange={formik.handleChange}
                 variant='outlined'
                 fullWidth
@@ -115,13 +118,13 @@ const DevicesModal: React.VFC<Props> = ({
 
               <TextField
                 sx={{ mt: 2 }}
-                name='deviceUuid'
+                name='uuid'
                 type='text'
                 label={fm('DevicesModal_UuidFieldLabel')}
                 placeholder={fm('DevicesModal_UuidFieldPlaceholder')}
-                value={formik.values.deviceUuid}
-                error={formik.touched.deviceUuid && Boolean(formik.errors.deviceUuid)}
-                helperText={formik.touched.deviceUuid && formik.errors.deviceUuid}
+                value={formik.values.uuid}
+                error={formik.touched.uuid && Boolean(formik.errors.uuid)}
+                helperText={formik.touched.uuid && formik.errors.uuid}
                 onChange={formik.handleChange}
                 variant='outlined'
                 fullWidth

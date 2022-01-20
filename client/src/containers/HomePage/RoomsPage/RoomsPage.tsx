@@ -28,13 +28,17 @@ import { TYPE_ROOM } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import RoomsModal from './RoomsModal';
 
+import type { NewRoomInput, UpdateRoomInput } from '../../../generated/graphql';
+
+export type RoomsModalInitialValues = {
+  name: string
+};
+
 type RoomsModalState = {
   open: boolean,
   mode: 'add' | 'edit',
   roomId: string | null,
-  initialValues: {
-    roomName: string
-  }
+  initialValues: RoomsModalInitialValues
 };
 
 type Props = {};
@@ -44,7 +48,7 @@ const defaultModalState: RoomsModalState = {
   mode: 'add',
   roomId: null,
   initialValues: {
-    roomName: ''
+    name: ''
   }
 };
 
@@ -94,50 +98,40 @@ const RoomsPage: React.VFC<Props> = () => {
         mode: 'edit',
         roomId,
         initialValues: {
-          roomName: room.name || ''
+          name: room.name || ''
         }
       });
     }
   };
 
-  const onAddRoom = (name: string) => {
-    addRoom({
-      newRoom: { name }
-    }).then((result) => {
+  const onAddRoom = (newRoom: NewRoomInput) => {
+    addRoom({ newRoom }).then((result) => {
       closeModal();
 
       if (result.error) {
         showGlobalError(result.error);
-      };
+      }
     });
   };
 
-  const onEditRoom = (id: string, name: string) => {
-    const room = rooms.find(r => r.id === id);
+  const onEditRoom = (room: UpdateRoomInput) => {
+    const oldRoom = rooms.find(r => r.id === room.id);
 
-    if (room) {
-      const scanners = room.scanners ? room.scanners.map(scanner => scanner.id!) : [];
+    if (oldRoom) {
+      room.scanners = oldRoom.scanners?.map(scanner => scanner.id!);
 
-      updateRoom({
-        room: {
-          id,
-          name,
-          scanners
-        }
-      }).then((result) => {
+      updateRoom({ room }).then((result) => {
         closeModal();
 
         if (result.error) {
           showGlobalError(result.error);
-        };
+        }
       });
     }
   };
 
-  const deleteRoom = (id: string) => {
-    removeRoom({
-      roomId: id
-    }).then((result) => {
+  const deleteRoom = (roomId: string) => {
+    removeRoom({ roomId }).then((result) => {
       closeModal();
 
       if (result.error) {

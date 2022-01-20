@@ -15,17 +15,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useFormatMessage } from '../../../intl/helpers';
 import ConfirmDialog from '../../../components/ConfirmDialog/ConfirmDialog';
 
+import type { NewScannerInput, UpdateScannerInput } from '../../../generated/graphql';
+import type { ScannersModalInitialValues } from './ScannersPage';
+
 type Props = {
   open: boolean,
   mode: 'add' | 'edit',
   scannerId: string | null,
-  initialValues: {
-    scannerUuid: string
-  },
+  initialValues: ScannersModalInitialValues,
   onClose: () => void,
-  onAddScanner: (uuid: string) => void,
-  onEditScanner: (id: string, uuid: string) => void,
-  deleteScanner: (id: string) => void
+  onAddScanner: (newScanner: NewScannerInput) => void,
+  onEditScanner: (scanner: UpdateScannerInput) => void,
+  deleteScanner: (scannerId: string) => void
 };
 
 const ScannersModal: React.VFC<Props> = ({
@@ -47,7 +48,7 @@ const ScannersModal: React.VFC<Props> = ({
   const submitButtonText = mode === 'add' ? fm('Button_Add') : fm('Button_Save');
 
   const validationSchema = yup.object({
-    scannerUuid: yup.string().required(fm('Validation_Required'))
+    uuid: yup.string().required(fm('Validation_Required'))
   });
 
   const formik = useFormik({
@@ -58,9 +59,12 @@ const ScannersModal: React.VFC<Props> = ({
       setLoading(true);
 
       if (mode === 'add') {
-        onAddScanner(values.scannerUuid);
+        onAddScanner({ ...values });
       } else if (scannerId !== null) {
-        onEditScanner(scannerId, values.scannerUuid);
+        onEditScanner({
+          id: scannerId,
+          ...values
+        });
       }
     }
   });
@@ -99,13 +103,13 @@ const ScannersModal: React.VFC<Props> = ({
           <DialogContent sx={{ py: 0 }}>
             <Box sx={{ py: 1 }}>
               <TextField
-                name='scannerUuid'
+                name='uuid'
                 type='text'
                 label={fm('ScannersModal_UuidFieldLabel')}
                 placeholder={fm('ScannersModal_UuidFieldPlaceholder')}
-                value={formik.values.scannerUuid}
-                error={formik.touched.scannerUuid && Boolean(formik.errors.scannerUuid)}
-                helperText={formik.touched.scannerUuid && formik.errors.scannerUuid}
+                value={formik.values.uuid}
+                error={formik.touched.uuid && Boolean(formik.errors.uuid)}
+                helperText={formik.touched.uuid && formik.errors.uuid}
                 onChange={formik.handleChange}
                 variant='outlined'
                 fullWidth

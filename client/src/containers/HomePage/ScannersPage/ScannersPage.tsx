@@ -28,13 +28,17 @@ import { TYPE_SCANNER } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import ScannersModal from './ScannersModal';
 
+import type { NewScannerInput, UpdateScannerInput } from '../../../generated/graphql';
+
+export type ScannersModalInitialValues = {
+  uuid: string
+};
+
 type ScannersModalState = {
   open: boolean,
   mode: 'add' | 'edit',
   scannerId: string | null,
-  initialValues: {
-    scannerUuid: string
-  }
+  initialValues: ScannersModalInitialValues
 };
 
 type Props = {};
@@ -44,7 +48,7 @@ const defaultModalState: ScannersModalState = {
   mode: 'add',
   scannerId: null,
   initialValues: {
-    scannerUuid: ''
+    uuid: ''
   }
 };
 
@@ -94,50 +98,40 @@ const ScannersPage: React.VFC<Props> = () => {
         mode: 'edit',
         scannerId,
         initialValues: {
-          scannerUuid: scanner.uuid
+          uuid: scanner.uuid
         }
       });
     }
   };
 
-  const onAddScanner = (uuid: string) => {
-    addScanner({
-      newScanner: { uuid }
-    }).then((result) => {
+  const onAddScanner = (newScanner: NewScannerInput) => {
+    addScanner({ newScanner }).then((result) => {
       closeModal();
 
       if (result.error) {
         showGlobalError(result.error);
-      };
+      }
     });
   };
 
-  const onEditScanner = (id: string, uuid: string) => {
-    const scanner = scanners.find(s => s.id === id);
+  const onEditScanner = (scanner: UpdateScannerInput) => {
+    const oldScanner = scanners.find(s => s.id === scanner.id);
 
-    if (scanner) {
-      const usedInRooms = scanner.usedInRooms ? scanner.usedInRooms.map(room => room.id) : [];
+    if (oldScanner) {
+      scanner.usedInRooms = oldScanner.usedInRooms?.map(room => room.id);
 
-      updateScanner({
-        scanner: {
-          id,
-          uuid,
-          usedInRooms
-        }
-      }).then((result) => {
+      updateScanner({ scanner }).then((result) => {
         closeModal();
 
         if (result.error) {
           showGlobalError(result.error);
-        };
+        }
       });
     }
   };
 
-  const deleteScanner = (id: string) => {
-    removeScanner({
-      scannerId: id
-    }).then((result) => {
+  const deleteScanner = (scannerId: string) => {
+    removeScanner({ scannerId }).then((result) => {
       closeModal();
 
       if (result.error) {

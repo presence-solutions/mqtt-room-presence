@@ -19,10 +19,12 @@ export default function HomePage() {
             to='rooms'
             text={fm('HomePage_RoomsLink')}
             icon={<BedIcon />} />
+
           <SideBarLink
             to='devices'
             text={fm('HomePage_DevicesLink')}
             icon={<DevicesIcon />} />
+
           <SideBarLink
             to='scanners'
             text={fm('HomePage_ScannersLink')}

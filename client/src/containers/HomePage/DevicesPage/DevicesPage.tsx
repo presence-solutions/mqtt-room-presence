@@ -28,14 +28,18 @@ import { TYPE_DEVICE } from '../../../lib/constants/graphql';
 import PageTitle from '../../../components/PageTitle/PageTitle';
 import DevicesModal from './DevicesModal';
 
+import type { NewDeviceInput, UpdateDeviceInput } from '../../../generated/graphql';
+
+export type DevicesModalInitialValues = {
+  name: string,
+  uuid: string
+};
+
 type DevicesModalState = {
   open: boolean,
   mode: 'add' | 'edit',
   deviceId: string | null,
-  initialValues: {
-    deviceName: string,
-    deviceUuid: string
-  }
+  initialValues: DevicesModalInitialValues
 };
 
 type Props = {};
@@ -45,8 +49,8 @@ const defaultModalState: DevicesModalState = {
   mode: 'add',
   deviceId: null,
   initialValues: {
-    deviceName: '',
-    deviceUuid: ''
+    name: '',
+    uuid: ''
   }
 };
 
@@ -96,52 +100,35 @@ const DevicesPage: React.VFC<Props> = () => {
         mode: 'edit',
         deviceId,
         initialValues: {
-          deviceName: device.name || '',
-          deviceUuid: device.uuid || ''
+          name: device.name || '',
+          uuid: device.uuid || ''
         }
       });
     }
   };
 
-  const onAddDevice = (name: string, uuid: string) => {
-    addDevice({
-      newDevice: {
-        name,
-        uuid
-      }
-    }).then((result) => {
+  const onAddDevice = (newDevice: NewDeviceInput) => {
+    addDevice({ newDevice }).then((result) => {
       closeModal();
 
       if (result.error) {
         showGlobalError(result.error);
-      };
+      }
     });
   };
 
-  const onEditDevice = (id: string, name: string, uuid: string) => {
-    const device = devices.find(d => d.id === id);
+  const onEditDevice = (device: UpdateDeviceInput) => {
+    updateDevice({ device }).then((result) => {
+      closeModal();
 
-    if (device) {
-      updateDevice({
-        device: {
-          id,
-          name,
-          uuid
-        }
-      }).then((result) => {
-        closeModal();
-
-        if (result.error) {
-          showGlobalError(result.error);
-        };
-      });
-    }
+      if (result.error) {
+        showGlobalError(result.error);
+      }
+    });
   };
 
-  const deleteDevice = (id: string) => {
-    removeDevice({
-      deviceId: id
-    }).then((result) => {
+  const deleteDevice = (deviceId: string) => {
+    removeDevice({ deviceId }).then((result) => {
       closeModal();
 
       if (result.error) {

@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
-import type { Action, ThunkAction } from '@reduxjs/toolkit';
 import commonReducer from './slices/commonSlice';
+import type { Action, ThunkAction } from '@reduxjs/toolkit';
 
 export const store = configureStore({
   reducer: {
