@@ -1,0 +1,42 @@
+query GetAllRooms {
+  allRooms {
+    id,
+    name,
+    scanners {
+      id,
+      uuid
+    }
+  }
+}
+
+mutation AddRoom($newRoom: NewRoomInput!) {
+  addRoom(input: $newRoom) {
+    room {
+      id,
+      name,
+      scanners {
+        id,
+        uuid
+      }
+    }
+  }
+}
+
+mutation UpdateRoom($room: UpdateRoomInput!) {
+  updateRoom(input: $room) {
+    room {
+      id,
+      name,
+      scanners {
+        id,
+        uuid
+      }
+    }
+  }
+}
+
+mutation RemoveRoom($roomId: ID!) {
+  removeRoom(id: $roomId) {
+    id
+  }
+}
