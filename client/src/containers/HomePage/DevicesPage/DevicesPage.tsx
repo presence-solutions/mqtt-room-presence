@@ -54,6 +54,8 @@ const defaultModalState: DevicesModalState = {
   }
 };
 
+const sideColumnWidth = '64px';
+
 const DevicesPage: React.VFC<Props> = () => {
   const dispatch = useAppDispatch();
   const fm = useFormatMessage();
@@ -153,10 +155,12 @@ const DevicesPage: React.VFC<Props> = () => {
           <Table aria-label='devices list' sx={{ borderCollapse: 'separate' }}>
             <TableHead>
               <TableRow>
-                <TableCell>{fm('DevicesPage_IdColumn')}</TableCell>
-                <TableCell>{fm('DevicesPage_NameColumn')}</TableCell>
+                <TableCell align='center' sx={{ width: sideColumnWidth }}>
+                  {fm('DevicesPage_IdColumn')}
+                </TableCell>
+                <TableCell sx={{ width: '35%' }}>{fm('DevicesPage_NameColumn')}</TableCell>
                 <TableCell>{fm('DevicesPage_UuidColumn')}</TableCell>
-                <TableCell align='center' sx={{ p: 0 }}>
+                <TableCell align='center' sx={{ p: 0, width: sideColumnWidth }}>
                   <Tooltip title={fm('DevicesPage_AddDeviceTooltip')} placement='top'>
                     <IconButton
                       aria-label='add device'
@@ -172,7 +176,7 @@ const DevicesPage: React.VFC<Props> = () => {
             <TableBody>
               {devices.map(device => (
                 <TableRow key={device.id} hover>
-                  <TableCell>{device.id}</TableCell>
+                  <TableCell align='center'>{device.id}</TableCell>
                   <TableCell>{device.name}</TableCell>
                   <TableCell>{device.uuid}</TableCell>
                   <TableCell align='center' sx={{ p: 0 }}>

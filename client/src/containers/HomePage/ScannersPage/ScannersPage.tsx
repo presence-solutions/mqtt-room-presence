@@ -52,6 +52,8 @@ const defaultModalState: ScannersModalState = {
   }
 };
 
+const sideColumnWidth = '64px';
+
 const ScannersPage: React.VFC<Props> = () => {
   const dispatch = useAppDispatch();
   const fm = useFormatMessage();
@@ -156,9 +158,11 @@ const ScannersPage: React.VFC<Props> = () => {
           <Table aria-label='scanners list' sx={{ borderCollapse: 'separate' }}>
             <TableHead>
               <TableRow>
-                <TableCell>{fm('ScannersPage_IdColumn')}</TableCell>
+                <TableCell align='center' sx={{ width: sideColumnWidth }}>
+                  {fm('ScannersPage_IdColumn')}
+                </TableCell>
                 <TableCell>{fm('ScannersPage_UuidColumn')}</TableCell>
-                <TableCell align='center' sx={{ p: 0 }}>
+                <TableCell align='center' sx={{ p: 0, width: sideColumnWidth }}>
                   <Tooltip title={fm('ScannersPage_AddScannerTooltip')} placement='top'>
                     <IconButton
                       aria-label='add scanner'
@@ -174,7 +178,7 @@ const ScannersPage: React.VFC<Props> = () => {
             <TableBody>
               {scanners.map((scanner, idx) => (
                 <TableRow key={idx} hover>
-                  <TableCell>{scanner.id || ''}</TableCell>
+                  <TableCell align='center'>{scanner.id || ''}</TableCell>
                   <TableCell>{scanner.uuid}</TableCell>
                   <TableCell align='center' sx={{ p: 0 }}>
                     {scanner.id && (

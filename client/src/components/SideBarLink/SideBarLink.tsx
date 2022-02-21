@@ -15,7 +15,7 @@ const SideBarLink: React.VFC<Props> = ({ to, text, icon }: Props) => {
   const match = useMatch({ path: resolved.pathname, end: true });
 
   return (
-    <ListItemButton component={Link} to={to} selected={Boolean(match)}>
+    <ListItemButton component={Link} to={to} selected={Boolean(match)} sx={{ borderRadius: 1 }}>
       {icon &&
         <ListItemIcon>
           {icon}

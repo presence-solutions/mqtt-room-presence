@@ -8,13 +8,15 @@ import CastConnectedIcon from '@mui/icons-material/CastConnected';
 import { useFormatMessage } from '../../intl/helpers';
 import SideBarLink from '../../components/SideBarLink/SideBarLink';
 
-export default function HomePage() {
+type Props = {};
+
+const HomePage: React.VFC<Props> = () => {
   const fm = useFormatMessage();
 
   return (
     <Grid container columns={16}>
       <Grid item xs={16} md={4} lg={3}>
-        <List component='nav' aria-label='side bar navigation'>
+        <List component='nav' aria-label='side bar navigation' sx={{ py: 2 }}>
           <SideBarLink
             to='rooms'
             text={fm('HomePage_RoomsLink')}
@@ -32,9 +34,11 @@ export default function HomePage() {
         </List>
       </Grid>
 
-      <Grid item xs sx={{ py: 1, pl: { xs: 0, md: 1 } }}>
+      <Grid item xs sx={{ p: { xs: 0, md: 2 }, pb: { xs: 2 } }}>
         <Outlet />
       </Grid>
     </Grid>
   );
-}
+};
+
+export default HomePage;

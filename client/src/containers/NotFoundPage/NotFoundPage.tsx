@@ -1,6 +1,8 @@
 import { useFormatMessage } from '../../intl/helpers';
 
-export default function NotFoundPage() {
+type Props = {};
+
+const NotFoundPage: React.VFC<Props> = () => {
   const fm = useFormatMessage();
 
   return (
@@ -8,4 +10,6 @@ export default function NotFoundPage() {
       {fm('NotFoundPage_Message')}
     </div>
   );
-}
+};
+
+export default NotFoundPage;

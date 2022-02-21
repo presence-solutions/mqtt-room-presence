@@ -52,6 +52,8 @@ const defaultModalState: RoomsModalState = {
   }
 };
 
+const sideColumnWidth = '64px';
+
 const RoomsPage: React.VFC<Props> = () => {
   const dispatch = useAppDispatch();
   const fm = useFormatMessage();
@@ -156,9 +158,11 @@ const RoomsPage: React.VFC<Props> = () => {
           <Table aria-label='rooms list' sx={{ borderCollapse: 'separate' }}>
             <TableHead>
               <TableRow>
-                <TableCell>{fm('RoomsPage_IdColumn')}</TableCell>
+                <TableCell align='center' sx={{ width: sideColumnWidth }}>
+                  {fm('RoomsPage_IdColumn')}
+                </TableCell>
                 <TableCell>{fm('RoomsPage_NameColumn')}</TableCell>
-                <TableCell align='center' sx={{ p: 0 }}>
+                <TableCell align='center' sx={{ p: 0, width: sideColumnWidth }}>
                   <Tooltip title={fm('RoomsPage_AddRoomTooltip')} placement='top'>
                     <IconButton
                       aria-label='add room'
@@ -174,7 +178,7 @@ const RoomsPage: React.VFC<Props> = () => {
             <TableBody>
               {rooms.map(room => (
                 <TableRow key={room.id} hover>
-                  <TableCell>{room.id}</TableCell>
+                  <TableCell align='center'>{room.id}</TableCell>
                   <TableCell>{room.name}</TableCell>
                   <TableCell align='center' sx={{ p: 0 }}>
                     <Tooltip title={fm('RoomsPage_EditRoomTooltip')} placement='top'>
