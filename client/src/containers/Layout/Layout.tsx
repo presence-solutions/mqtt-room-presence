@@ -17,7 +17,7 @@ import ThemeSwitch from '../../components/ThemeSwitch/ThemeSwitch';
 
 type Props = {};
 
-const Layout: React.FC<Props> = (props) => {
+const Layout: React.VFC<Props> = () => {
   const fm = useFormatMessage();
   const dispatch = useAppDispatch();
   const { theme } = useAppSelector((state) => state.common);

@@ -99,7 +99,7 @@ const DevicesModal: React.VFC<Props> = ({
     <>
       <Dialog open={open} onClose={onClose} maxWidth='sm' fullWidth keepMounted>
         <form onSubmit={formik.handleSubmit}>
-          <DialogTitle sx={{ textAlign: 'center' }}>{title}</DialogTitle>
+          <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>{title}</DialogTitle>
 
           <DialogContent sx={{ py: 0 }}>
             <Box sx={{ py: 1 }}>
